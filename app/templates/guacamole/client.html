@@ -50,6 +50,8 @@
             display: flex;
             flex-direction: column;
             position: fixed;
+            overflow: hidden;
+            font-family: sans-serif;
         }
 
         #display-container {
@@ -58,6 +60,10 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
+        }
+
+        .guac-display {
+            position: absolute;
         }
 
         .alert {
@@ -88,6 +94,39 @@
 
         #status.hidden {
             opacity: 0;
+            pointer-events: none;
+        }
+
+        #error-display {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+            padding: 20px;
+            text-align: center;
+            display: none;
+        }
+
+        .error-message {
+            margin-bottom: 20px;
+            max-width: 80%;
+        }
+
+        .reconnect-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -97,6 +136,10 @@
     </div>
     <div id="display-container"></div>
     <div id="status">连接中...</div>
+    <div id="error-display">
+        <div class="error-message">连接错误</div>
+        <button class="reconnect-button" onclick="reconnect()">重新连接</button>
+    </div>
 
     <script>
         // 初始化变量
@@ -104,10 +147,19 @@
         const hasTimeLimit = {{ 'true' if has_time_limit else 'false' }};
         const initialRemainingTime = {{ remaining_time or 0 }};
         let remainingSeconds = initialRemainingTime;
+
+        // WebSocket连接URL - 不要添加任何查询参数
         const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/guacamole/ws/${studentTaskId}`;
 
+        // DOM元素引用
         const statusDisplay = document.getElementById('status');
         const displayContainer = document.getElementById('display-container');
+        const errorDisplay = document.getElementById('error-display');
+        const errorMessage = document.querySelector('.error-message');
+
+        // Guacamole客户端及隧道
+        let guacTunnel = null;
+        let guacClient = null;
 
         // 显示状态消息
         function showStatus(message) {
@@ -120,41 +172,280 @@
             }, 3000);
         }
 
-        // 创建WebSocket连接
-        let socket = null;
+        // 显示错误
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorDisplay.style.display = 'flex';
+        }
 
-        function connect() {
-            socket = new WebSocket(wsUrl);
+        // 隐藏错误
+        function hideError() {
+            errorDisplay.style.display = 'none';
+        }
 
-            socket.onopen = function() {
-                showStatus('WebSocket连接已建立');
+        // 自定义WebSocket隧道实现，避免添加查询参数
+        function CustomWebSocketTunnel(url) {
+
+            /**
+             * 引用隧道本身
+             */
+            var tunnel = this;
+
+            /**
+             * WebSocket状态常量
+             */
+            this.State = Guacamole.Tunnel.State;
+
+            /**
+             * 存储是否已建立连接
+             */
+            var connected = false;
+
+            /**
+             * WebSocket对象
+             */
+            var socket = null;
+
+            // 事件回调
+            this.onstatechange = null;
+            this.oninstruction = null;
+
+            /**
+             * 将指定指令发送到服务器
+             */
+            this.sendMessage = function(elements) {
+                // 如果未连接则抛出错误
+                if (!connected)
+                    throw new Guacamole.Status.Code.SERVER_ERROR;
+
+                // 构建Guacamole协议消息
+                var message = "";
+                for (var i=0; i<elements.length; i++) {
+                    message += elements[i].length + "." + elements[i];
+                    if (i < elements.length-1)
+                        message += ",";
+                }
+                message += ";";
+
+                socket.send(message);
             };
 
-            socket.onclose = function() {
-                showStatus('连接已关闭');
+            /**
+             * 关闭隧道
+             */
+            this.disconnect = function() {
+                if (socket) {
+                    socket.close();
+                    socket = null;
+                }
+
+                connected = false;
             };
 
-            socket.onerror = function(error) {
-                showStatus(`连接错误: ${error}`);
-            };
+            /**
+             * 连接到隧道
+             */
+            this.connect = function() {
+                // 使用无参数的URL直接创建WebSocket
+                socket = new WebSocket(url);
 
-            socket.onmessage = function(event) {
-                // 处理来自服务器的消息
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "connect") {
-                        showStatus('远程桌面连接已建立');
+                socket.onopen = function(event) {
+                    connected = true;
+                    if (tunnel.onstatechange)
+                        tunnel.onstatechange(tunnel.State.OPEN);
+                };
+
+                socket.onclose = function(event) {
+                    connected = false;
+                    if (tunnel.onstatechange)
+                        tunnel.onstatechange(tunnel.State.CLOSED);
+                };
+
+                socket.onerror = function(event) {
+                    connected = false;
+                    if (tunnel.onstatechange)
+                        tunnel.onstatechange(tunnel.State.CLOSED);
+                };
+
+                socket.onmessage = function(event) {
+                    var message = event.data;
+                    var instructions = message.split(";");
+
+                    for (var i=0; i<instructions.length; i++) {
+                        var instruction = instructions[i];
+                        if (instruction.length > 0) {
+                            // 解析指令
+                            var elements = [];
+                            var elementStart = 0;
+                            var elementEnd;
+
+                            var current = instruction;
+
+                            // 解析每个元素
+                            while (elementStart < current.length) {
+                                // 查找元素长度后面的点
+                                var dot = current.indexOf(".", elementStart);
+                                if (dot === -1)
+                                    throw new Error("指令格式无效");
+
+                                // 解析长度
+                                var length = parseInt(current.substring(elementStart, dot));
+                                if (isNaN(length))
+                                    throw new Error("无效的元素长度");
+
+                                // 计算元素结束位置
+                                elementEnd = dot + length + 1;
+                                if (elementEnd > current.length)
+                                    throw new Error("元素长度不正确");
+
+                                // 提取元素
+                                var element = current.substring(dot + 1, elementEnd);
+                                elements.push(element);
+
+                                // 跳过逗号或分号
+                                elementStart = elementEnd + 1;
+                                if (elementStart < current.length && current.charAt(elementStart - 1) === ',')
+                                    continue;
+                                break;
+                            }
+
+                            // 调用指令处理
+                            if (tunnel.oninstruction) {
+                                // 获取操作码和参数
+                                var opcode = elements.shift();
+                                tunnel.oninstruction(opcode, elements);
+                            }
+                        }
                     }
-                } catch (e) {
-                    // 不是JSON消息，可能是原始显示数据
-                    // 这里我们直接显示远程桌面画面
-                    displayContainer.innerHTML = `
-                        <div style="color:white;padding:20px;text-align:center;">
-                            收到远程桌面数据 (${event.data.length} 字节)
-                        </div>
-                    `;
+                };
+            };
+        }
+
+        // 继承Guacamole.Tunnel基类
+        CustomWebSocketTunnel.prototype = new Guacamole.Tunnel();
+
+        // 创建Guacamole客户端
+        function initializeGuacamoleClient() {
+            // 创建自定义WebSocket隧道
+            guacTunnel = new CustomWebSocketTunnel(wsUrl);
+
+            // 创建Guacamole客户端
+            guacClient = new Guacamole.Client(guacTunnel);
+
+            // 获取显示元素，并添加到容器中
+            const display = guacClient.getDisplay().getElement();
+            displayContainer.innerHTML = '';
+            displayContainer.appendChild(display);
+
+            // 设置状态改变处理
+            guacClient.onstatechange = function(state) {
+                switch (state) {
+                    case 0: // IDLE
+                        showStatus('等待连接');
+                        break;
+                    case 1: // CONNECTING
+                        showStatus('正在连接...');
+                        break;
+                    case 2: // CONNECTED
+                        showStatus('连接已建立');
+                        break;
+                    case 3: // DISCONNECTING
+                        showStatus('正在断开连接');
+                        break;
+                    case 4: // DISCONNECTED
+                        showStatus('连接已断开');
+                        break;
+                    default:
+                        showStatus('未知状态: ' + state);
                 }
             };
+
+            // 错误处理
+            guacClient.onerror = function(error) {
+                console.error('Guacamole错误:', error);
+                showError(`远程桌面错误: ${error.message || '未知错误'}`);
+            };
+
+            // 设置鼠标处理
+            const mouse = new Guacamole.Mouse(display);
+
+            mouse.onmousedown =
+            mouse.onmouseup =
+            mouse.onmousemove = function(mouseState) {
+                guacClient.sendMouseState(mouseState);
+            };
+
+            // 设置键盘处理
+            const keyboard = new Guacamole.Keyboard(document);
+
+            keyboard.onkeydown = function(keysym) {
+                guacClient.sendKeyEvent(1, keysym);
+                return false;
+            };
+
+            keyboard.onkeyup = function(keysym) {
+                guacClient.sendKeyEvent(0, keysym);
+                return false;
+            };
+
+            // 窗口大小改变时调整
+            function updateDisplaySize() {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+
+                if (guacClient) {
+                    guacClient.sendSize(width, height);
+                }
+            }
+
+            window.addEventListener('resize', updateDisplaySize);
+
+            // 禁用右键菜单，避免干扰远程桌面操作
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            });
+
+            // 连接到Guacamole服务器
+            guacClient.connect();
+
+            // 初始调整大小
+            setTimeout(updateDisplaySize, 1000);
+
+            return {
+                client: guacClient,
+                tunnel: guacTunnel
+            };
+        }
+
+        // 断开连接
+        function disconnect() {
+            if (guacClient) {
+                try {
+                    guacClient.disconnect();
+                } catch (e) {
+                    console.error('断开连接时出错:', e);
+                }
+                guacClient = null;
+            }
+
+            if (guacTunnel) {
+                try {
+                    guacTunnel.disconnect();
+                } catch (e) {
+                    console.error('关闭隧道时出错:', e);
+                }
+                guacTunnel = null;
+            }
+        }
+
+        // 重新连接
+        function reconnect() {
+            hideError();
+            disconnect();
+            setTimeout(() => {
+                initializeGuacamoleClient();
+            }, 1000);
         }
 
         // 更新剩余时间显示
@@ -168,68 +459,92 @@
 
             if (remainingSeconds <= 0) {
                 clearInterval(timerInterval);
-                socket && socket.close();
+                disconnect();
                 alert('实验时间已结束');
             }
 
             remainingSeconds--;
         }
 
-        // 发送鼠标事件
-        function sendMouse(x, y, left, middle, right) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'mouse',
-                    x: x,
-                    y: y,
-                    left: left,
-                    middle: middle,
-                    right: right
-                }));
-            }
+        // 心跳检测
+        let heartbeatInterval;
+        let missedHeartbeats = 0;
+
+        function startHeartbeat() {
+            heartbeatInterval = setInterval(() => {
+                fetch(`/api/v1/tasks/student/${studentTaskId}/heartbeat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('心跳检测失败');
+                    return response.json();
+                })
+                .then(data => {
+                    missedHeartbeats = 0;
+                })
+                .catch(err => {
+                    console.error('心跳错误:', err);
+                    missedHeartbeats++;
+                    if (missedHeartbeats >= 4) {
+                        clearInterval(heartbeatInterval);
+                        endExperiment();
+                        showError('连接中断，实验将自动结束');
+                    }
+                });
+            }, 30000); // 每30秒一次
         }
 
-        // 发送键盘事件
-        function sendKey(pressed, keysym) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'key',
-                    pressed: pressed,
-                    keysym: keysym
-                }));
-            }
+        // 结束实验
+        function endExperiment() {
+            disconnect();
+
+            // 可以添加结束实验的API调用
+            fetch(`/api/v1/tasks/student/${studentTaskId}/end`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            })
+            .catch(err => console.error('结束实验错误:', err));
         }
 
-        // 发送窗口大小
-        function sendSize(width, height) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'size',
-                    width: width,
-                    height: height
-                }));
-            }
-        }
-
-        // 启动计时器
+        // 启动计时器（如果有时间限制）
         let timerInterval;
         if (hasTimeLimit) {
             updateRemainingTime();
             timerInterval = setInterval(updateRemainingTime, 1000);
         }
 
-        // 连接
-        connect();
+        // 页面卸载前执行清理
+        window.addEventListener('beforeunload', function() {
+            disconnect();
 
-        // 窗口大小改变时发送新尺寸
-        window.addEventListener('resize', function() {
-            sendSize(window.innerWidth, window.innerHeight);
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
         });
 
-        // 初始化窗口大小
-        setTimeout(function() {
-            sendSize(window.innerWidth, window.innerHeight);
-        }, 1000);
+        // 启动心跳检测
+        //startHeartbeat();
+
+        // 初始化Guacamole客户端
+        initializeGuacamoleClient();
+
+        // 添加自动重连
+        window.addEventListener('online', function() {
+            if (!guacClient) {
+                reconnect();
+            }
+        });
     </script>
 </body>
 </html>

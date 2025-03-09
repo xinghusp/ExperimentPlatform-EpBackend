@@ -126,7 +126,7 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
             enable_desktop_composition="false",
             enable_menu_animations="false"
         )
-
+        print("tunnel_result:", tunnel_result)
         if not tunnel_result["success"]:
             await websocket.close(code=1011, reason=f"无法创建远程桌面连接: {tunnel_result.get('error')}")
             return
@@ -177,23 +177,25 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
                 try:
                     data = json.loads(text)
                     msg_type = data.get("type")
+                    msg_text = data.get("text")
+                    await guacamole_service.send_instruction(connection_id, msg_text)
 
-                    if msg_type == "mouse":
-                        await guacamole_service.send_mouse(
-                            connection_id,
-                            data.get("x"), data.get("y"),
-                            data.get("left"), data.get("middle"), data.get("right")
-                        )
-                    elif msg_type == "key":
-                        await guacamole_service.send_key(
-                            connection_id,
-                            data.get("pressed"), data.get("keysym")
-                        )
-                    elif msg_type == "size":
-                        await guacamole_service.resize(
-                            connection_id,
-                            data.get("width"), data.get("height")
-                        )
+                    # if msg_type == "mouse":
+                    #     await guacamole_service.send_mouse(
+                    #         connection_id,
+                    #         data.get("x"), data.get("y"),
+                    #         data.get("left"), data.get("middle"), data.get("right")
+                    #     )
+                    # elif msg_type == "key":
+                    #     await guacamole_service.send_key(
+                    #         connection_id,
+                    #         data.get("pressed"), data.get("keysym")
+                    #     )
+                    # elif msg_type == "size":
+                    #     await guacamole_service.resize(
+                    #         connection_id,
+                    #         data.get("width"), data.get("height")
+                    #     )
                 except json.JSONDecodeError:
                     # 不是JSON，可能是原始Guacamole指令
                     await guacamole_service.send_instruction(connection_id, text)

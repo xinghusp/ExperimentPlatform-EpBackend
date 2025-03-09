@@ -114,7 +114,7 @@ class GuacamoleService:
                 def receive_message():
                     try:
                         # 非阻塞接收消息，超时返回None
-                        return client.receive(timeout=1.0)
+                        return client.receive()
                     except Exception as e:
                         if "timeout" in str(e).lower():
                             # 超时正常，继续循环
@@ -125,20 +125,19 @@ class GuacamoleService:
                 try:
                     # 在线程池中执行接收操作
                     instruction = await loop.run_in_executor(None, receive_message)
+                    print("收到指令：", instruction)
 
                     if instruction:
-                        opcode = instruction.opcode
-                        if opcode == "nop":
+                        if "nop" in instruction:
                             # 收到心跳包，回复心跳
                             await loop.run_in_executor(None, lambda: client.send("nop"))
-                        elif opcode == "disconnect":
+                        elif "disconnect" in instruction:
                             # 服务器要求断开
                             logger.info(f"服务器请求断开连接: {connection_id}")
                             break
-                        elif opcode == "error":
+                        elif "error" in instruction:
                             # 服务器报告错误
-                            args = instruction.args
-                            error_msg = args[0] if args else "未知错误"
+                            error_msg = instruction if instruction else "未知错误"
                             logger.error(f"Guacamole服务器报告错误: {error_msg}")
                             break
                 except Exception as e:
@@ -186,7 +185,7 @@ class GuacamoleService:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
-                lambda: client.send("mouse", x, y, button_mask)
+                lambda: client.send("5.mouse,", x, y, button_mask)
             )
             return True
 
@@ -326,11 +325,11 @@ class GuacamoleService:
         loop = asyncio.get_event_loop()
 
         def send_data():
-            try:
-                client._send_raw(instruction)
+            #:
+                client.send(instruction)
                 return True
-            except:
-                return False
+            #except:
+                #return False
 
         # 在线程池中执行发送操作
         return await loop.run_in_executor(None, send_data)
