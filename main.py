@@ -49,7 +49,7 @@ app.add_middleware(
 app.add_middleware(ProcessTimeMiddleware)
 
 # 挂载静态文件
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # 注册路由
 app.include_router(api_router, prefix=settings.API_V1_STR)

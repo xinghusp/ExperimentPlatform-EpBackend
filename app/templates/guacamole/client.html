@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>远程桌面实验环境</title>
+
+<script src="/static/js/ArrayBufferReader.js"></script>
+<script src="/static/js/ArrayBufferWriter.js"></script>
+<script src="/static/js/AudioContextFactory.js"></script>
+<script src="/static/js/AudioRecorder.js"></script>
+<script src="/static/js/BlobReader.js"></script>
+<script src="/static/js/BlobWriter.js"></script>
+<script src="/static/js/DataURIReader.js"></script>
+<script src="/static/js/Event.js"></script>
+<script src="/static/js/guacamole-audio-player.js"></script>
+<script src="/static/js/guacamole-client.js"></script>
+<script src="/static/js/guacamole-display.js"></script>
+<script src="/static/js/guacamole-keyboard.js"></script>
+<script src="/static/js/guacamole-layer.js"></script>
+<script src="/static/js/guacamole-mouse.js"></script>
+<script src="/static/js/guacamole-tunnel.js"></script>
+<script src="/static/js/guacamole-websocket.js"></script>
+<script src="/static/js/InputSink.js"></script>
+<script src="/static/js/InputStream.js"></script>
+<script src="/static/js/IntegerPool.js"></script>
+<script src="/static/js/JSONReader.js"></script>
+<script src="/static/js/Namespace.js"></script>
+<script src="/static/js/Object.js"></script>
+<script src="/static/js/OnScreenKeyboard.js"></script>
+<script src="/static/js/OutputStream.js"></script>
+<script src="/static/js/Parser.js"></script>
+<script src="/static/js/Position.js"></script>
+<script src="/static/js/RawAudioFormat.js"></script>
+<script src="/static/js/SessionRecording.js"></script>
+<script src="/static/js/Status.js"></script>
+<script src="/static/js/StringReader.js"></script>
+<script src="/static/js/StringWriter.js"></script>
+<script src="/static/js/Touch.js"></script>
+<script src="/static/js/UTF8Parser.js"></script>
+<script src="/static/js/Version.js"></script>
+<script src="/static/js/VideoPlayer.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+        }
+
+        #display-container {
+            flex: 1;
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .alert {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background-color: rgba(248, 215, 218, 0.9);
+            color: #721c24;
+            text-align: center;
+            z-index: 1000;
+            display: {{ 'block' if has_time_limit else 'none' }};
+        }
+
+        #status {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            text-align: center;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+
+        #status.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="alert" class="alert">
+        剩余实验时间: <span id="remaining-time">计算中...</span>
+    </div>
+    <div id="display-container"></div>
+    <div id="status">连接中...</div>
+
+    <script>
+        // 初始化变量
+        const studentTaskId = {{ student_task_id }};
+        const hasTimeLimit = {{ 'true' if has_time_limit else 'false' }};
+        const initialRemainingTime = {{ remaining_time or 0 }};
+        let remainingSeconds = initialRemainingTime;
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/guacamole/ws/${studentTaskId}`;
+
+        const statusDisplay = document.getElementById('status');
+        const displayContainer = document.getElementById('display-container');
+
+        // 显示状态消息
+        function showStatus(message) {
+            statusDisplay.textContent = message;
+            statusDisplay.classList.remove('hidden');
+
+            // 3秒后隐藏状态
+            setTimeout(() => {
+                statusDisplay.classList.add('hidden');
+            }, 3000);
+        }
+
+        // 创建WebSocket连接
+        let socket = null;
+
+        function connect() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function() {
+                showStatus('WebSocket连接已建立');
+            };
+
+            socket.onclose = function() {
+                showStatus('连接已关闭');
+            };
+
+            socket.onerror = function(error) {
+                showStatus(`连接错误: ${error}`);
+            };
+
+            socket.onmessage = function(event) {
+                // 处理来自服务器的消息
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "connect") {
+                        showStatus('远程桌面连接已建立');
+                    }
+                } catch (e) {
+                    // 不是JSON消息，可能是原始显示数据
+                    // 这里我们直接显示远程桌面画面
+                    displayContainer.innerHTML = `
+                        <div style="color:white;padding:20px;text-align:center;">
+                            收到远程桌面数据 (${event.data.length} 字节)
+                        </div>
+                    `;
+                }
+            };
+        }
+
+        // 更新剩余时间显示
+        function updateRemainingTime() {
+            if (!hasTimeLimit) return;
+
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            document.getElementById('remaining-time').textContent =
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+            if (remainingSeconds <= 0) {
+                clearInterval(timerInterval);
+                socket && socket.close();
+                alert('实验时间已结束');
+            }
+
+            remainingSeconds--;
+        }
+
+        // 发送鼠标事件
+        function sendMouse(x, y, left, middle, right) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'mouse',
+                    x: x,
+                    y: y,
+                    left: left,
+                    middle: middle,
+                    right: right
+                }));
+            }
+        }
+
+        // 发送键盘事件
+        function sendKey(pressed, keysym) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'key',
+                    pressed: pressed,
+                    keysym: keysym
+                }));
+            }
+        }
+
+        // 发送窗口大小
+        function sendSize(width, height) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'size',
+                    width: width,
+                    height: height
+                }));
+            }
+        }
+
+        // 启动计时器
+        let timerInterval;
+        if (hasTimeLimit) {
+            updateRemainingTime();
+            timerInterval = setInterval(updateRemainingTime, 1000);
+        }
+
+        // 连接
+        connect();
+
+        // 窗口大小改变时发送新尺寸
+        window.addEventListener('resize', function() {
+            sendSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 初始化窗口大小
+        setTimeout(function() {
+            sendSize(window.innerWidth, window.innerHeight);
+        }, 1000);
+    </script>
+</body>
+</html>
