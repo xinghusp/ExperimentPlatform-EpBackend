@@ -988,7 +988,7 @@ Guacamole.WebSocketTunnel = function(tunnelURL) {
         };
 
         // Connect socket
-        socket = new WebSocket(tunnelURL + "?" + data, "guacamole");
+        socket = new WebSocket(data===undefined?tunnelURL:tunnelURL + "?" + data, "guacamole");
 
         socket.onopen = function(event) {
             resetTimers();

@@ -54,8 +54,7 @@ class GuacamoleService:
                 "username": username,
                 "password": password,
                 "width": width,
-                "height": height,
-                "dpi": dpi
+                "height": height
             }
 
             # 添加其他参数

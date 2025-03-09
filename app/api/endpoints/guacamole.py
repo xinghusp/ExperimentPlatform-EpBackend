@@ -160,10 +160,10 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
         tunnel_task = asyncio.create_task(tunnel_message_forwarder())
 
         # 向客户端发送连接成功消息
-        await websocket.send_json({
-            "type": "connect",
-            "connectionId": connection_id
-        })
+        # await websocket.send_json({
+        #     "type": "connect",
+        #     "connectionId": connection_id
+        # })
 
         # 处理从客户端发来的消息
         while True:

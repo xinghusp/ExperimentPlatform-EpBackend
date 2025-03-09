@@ -216,7 +216,9 @@
             this.sendMessage = function(elements) {
                 // 如果未连接则抛出错误
                 if (!connected)
-                    throw new Guacamole.Status.Code.SERVER_ERROR;
+                    console.error("not connected");
+                    return;
+                    // new Guacamole.Status.Code.SERVER_ERROR;
 
                 // 构建Guacamole协议消息
                 var message = "";
