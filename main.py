@@ -68,7 +68,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "服务器内部错误，请联系管理员"}
     )
 logging.basicConfig(
-    level=logging.DEBUG,  # 设置日志输出等级为DEBUG
+    level=logging.WARNING,  # 设置日志输出等级为DEBUG
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 if __name__ == "__main__":

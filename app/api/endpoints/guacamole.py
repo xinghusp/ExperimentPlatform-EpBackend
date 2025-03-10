@@ -136,7 +136,9 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, width=1280,he
             enable_full_window_drag="false",
             enable_desktop_composition="false",
             enable_menu_animations="false",
-            color_depth=16
+            color_depth=16,
+            disable_audio="true",
+            framerate="15"
         )
 
         if not tunnel_result["success"]:
