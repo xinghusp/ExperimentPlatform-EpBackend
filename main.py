@@ -1,5 +1,7 @@
 import uvicorn
 import os
+
+from celery.bin.graph import workers
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,4 +72,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,workers=8,
+        loop="uvloop",               # 使用uvloop提高性能
+        http="httptools",            # 使用httptools提高性能
+        limit_concurrency=50,       # 限制每个worker的最大并发连接数
+        timeout_keep_alive=120,      # 增加保活超时
+        access_log=False)            # 减少日志开销)
