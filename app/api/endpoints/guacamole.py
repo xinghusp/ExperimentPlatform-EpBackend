@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import asyncio
 import json
 import logging
-from typing import Dict
+from typing import Dict, List, Optional
 
 from app.api.deps import get_db, get_current_student
 from app.core.config import settings
@@ -85,12 +85,21 @@ async def guacamole_client(
     )
 
 
-@router.websocket("/ws/{student_task_id}")
-async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session = Depends(get_db)):
+@router.websocket("/ws/{student_task_id}/{width}/{height}")
+async def guacamole_ws(websocket: WebSocket, student_task_id: int, width=1280,height=720,db: Session = Depends(get_db)):
     """
     WebSocket连接处理Guacamole通信
     """
-    await websocket.accept()
+    # 关键修改：接受WebSocket连接时指定子协议为"guacamole"
+    if "guacamole" in websocket.headers.get("sec-websocket-protocol", "").split(", "):
+        # 客户端请求了guacamole子协议
+        await websocket.accept(subprotocol="guacamole")
+        logger.info("接受WebSocket连接，子协议: guacamole")
+    else:
+        # 客户端没有请求子协议，以兼容模式接受
+        await websocket.accept()
+        logger.info("接受WebSocket连接，无子协议")
+
     tunnel_task = None
     connection_id = None
 
@@ -107,6 +116,8 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
             await websocket.close(code=1008, reason="任务信息不存在")
             return
 
+        logger.info(f"创建RDP连接到 {student_task.ecs_ip_address}:3389")
+
         # 创建与Guacamole服务器的连接
         tunnel_result = await guacamole_service.create_tunnel(
             protocol="rdp",
@@ -114,94 +125,79 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
             port=3389,
             username="Administrator",
             password=task.password,
-            width=1920,
-            height=1080,
+            width=int(float(width)),
+            height=int(float(height)),
             dpi=96,
             security="any",
             ignore_cert="true",
             enable_wallpaper="false",
-            enable_theming="true",
-            enable_font_smoothing="true",
+            enable_theming="false",
+            enable_font_smoothing="false",
             enable_full_window_drag="false",
             enable_desktop_composition="false",
-            enable_menu_animations="false"
+            enable_menu_animations="false",
+            color_depth=16
         )
-        print("tunnel_result:", tunnel_result)
+
         if not tunnel_result["success"]:
-            await websocket.close(code=1011, reason=f"无法创建远程桌面连接: {tunnel_result.get('error')}")
+            error_msg = f"无法创建远程桌面连接: {tunnel_result.get('error')}"
+            logger.error(error_msg)
+            await websocket.close(code=1011, reason=error_msg)
             return
 
         connection_id = tunnel_result["connection_id"]
+        logger.info(f"成功创建远程桌面连接，ID: {connection_id}")
+        await websocket.send_text(f"5.ready,{len(connection_id)+1}.${connection_id};")
 
         # 启动数据转发任务 - 从GuacamoleService获取数据并发送到WebSocket
         async def tunnel_message_forwarder():
+            instruction_count = 0
             try:
                 while True:
+                    # 从Guacamole服务器读取指令
                     instruction = await guacamole_service.read_instruction(connection_id)
-                    logger.info(f"收到指令: {instruction}")
                     if instruction:
-                        # 转换为Guacamole协议字符串
-                        # message = ""
-                        # for i, element in enumerate(instruction):
-                        #     message += str(len(element)) + "." + element
-                        #     if i < len(instruction) - 1:
-                        #         message += ","
-                        #     else:
-                        #         message += ";"
+                        instruction_count += 1
+                        # 每100条日志记录一次，避免日志过多
+                        if instruction_count % 100 == 0:
+                            logger.debug(f"已转发 {instruction_count} 条指令")
 
+                        # 直接发送原始指令字符串给客户端
                         await websocket.send_text(instruction)
                     else:
                         # 如果没有数据，短暂等待
                         await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                logger.info(f"转发任务已取消，总共转发了 {instruction_count} 条指令")
+                raise
             except Exception as e:
                 logger.exception(f"转发数据时出错: {e}")
 
         # 启动转发任务
         tunnel_task = asyncio.create_task(tunnel_message_forwarder())
 
-        # 向客户端发送连接成功消息
-        # await websocket.send_json({
-        #     "type": "connect",
-        #     "connectionId": connection_id
-        # })
-
-        # 处理从客户端发来的消息
+        # 处理从客户端发来的指令
         while True:
             message = await websocket.receive()
-            logger.info(f"收到WebSocket消息: {message}")
 
             if "text" in message:
                 text = message["text"]
-
-                # 尝试解析JSON消息
+                # 直接将客户端指令发送到Guacamole服务器
+                await guacamole_service.send_instruction(connection_id, text)
+            elif "bytes" in message:
+                # 处理二进制消息
+                bytes_data = message["bytes"]
                 try:
-                    data = json.loads(text)
-                    msg_type = data.get("type")
-                    msg_text = data.get("text")
-                    await guacamole_service.send_instruction(connection_id, msg_text)
-
-                    # if msg_type == "mouse":
-                    #     await guacamole_service.send_mouse(
-                    #         connection_id,
-                    #         data.get("x"), data.get("y"),
-                    #         data.get("left"), data.get("middle"), data.get("right")
-                    #     )
-                    # elif msg_type == "key":
-                    #     await guacamole_service.send_key(
-                    #         connection_id,
-                    #         data.get("pressed"), data.get("keysym")
-                    #     )
-                    # elif msg_type == "size":
-                    #     await guacamole_service.resize(
-                    #         connection_id,
-                    #         data.get("width"), data.get("height")
-                    #     )
-                except json.JSONDecodeError:
-                    # 不是JSON，可能是原始Guacamole指令
+                    # 将二进制数据转换为文本
+                    text = bytes_data.decode("utf-8")
                     await guacamole_service.send_instruction(connection_id, text)
+                except UnicodeDecodeError:
+                    logger.warning("收到无法解码的二进制数据")
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket连接断开: {student_task_id}")
+    except asyncio.CancelledError:
+        logger.info(f"WebSocket处理被取消: {student_task_id}")
     except Exception as e:
         logger.exception(f"WebSocket处理异常: {e}")
     finally:
@@ -211,8 +207,13 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, db: Session =
             try:
                 await tunnel_task
             except asyncio.CancelledError:
+                logger.debug("转发任务取消完成")
                 pass
 
         # 关闭Guacamole连接
         if connection_id:
-            await guacamole_service.close_tunnel(connection_id)
+            try:
+                close_result = await guacamole_service.close_tunnel(connection_id)
+                logger.info(f"关闭Guacamole连接 {connection_id}: {close_result}")
+            except Exception as e:
+                logger.error(f"关闭Guacamole连接时出错: {e}")

@@ -65,6 +65,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "服务器内部错误，请联系管理员"}
     )
-
+logging.basicConfig(
+    level=logging.DEBUG,  # 设置日志输出等级为DEBUG
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

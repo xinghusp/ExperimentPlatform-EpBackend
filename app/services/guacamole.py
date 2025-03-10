@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 from guacamole.client import GuacamoleClient
 from app.core.config import settings
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class GuacamoleService:
     """
     使用 pyguacamole 库实现的 Guacamole 服务
+    专注于握手后的忠实数据转发
     """
 
     def __init__(self):
@@ -25,7 +26,7 @@ class GuacamoleService:
             width: int = 1024, height: int = 768, dpi: int = 96, **kwargs
     ) -> Dict[str, Any]:
         """
-        创建与 guacd 的连接隧道
+        创建与 guacd 的连接隧道并完成握手
 
         Args:
             protocol: 远程桌面协议 (rdp, vnc, ssh)
@@ -42,7 +43,7 @@ class GuacamoleService:
             Dict: 包含连接信息的字典
         """
         try:
-            logger.info(f"尝试连接 guacd 服务器 {self.host}:{self.port}")
+            logger.info(f"尝试连接 guacd 服务器 {self.host}:{self.port} -> {hostname}:{port} (协议: {protocol})")
 
             # 生成唯一连接ID
             connection_id = str(uuid.uuid4())
@@ -54,283 +55,200 @@ class GuacamoleService:
                 "username": username,
                 "password": password,
                 "width": width,
-                "height": height
+                "height": height,
+                "dpi": dpi,
+                "image": ["image/jpeg","image/png"],
+                "audio": ["audio/ogg", "audio/mp3", "audio/aac"],
+                "video": ["video/h264", "video/webm"]
+
             }
 
             # 添加其他参数
             connection_params.update(kwargs)
 
             # 创建 GuacamoleClient 实例
-            client = GuacamoleClient(self.host, self.port, timeout=20)
+            client = GuacamoleClient(self.host, self.port, timeout=10)
 
-            # 在单独的协程中运行连接过程
-            def connect_sync():
+            # 在单独的线程中执行连接和握手
+            def connect_and_handshake():
                 try:
-                    # 连接到服务器并握手
-                    client.handshake(protocol=protocol, **connection_params)
-                    return True
-                except Exception as e:
-                    logger.exception(f"Guacamole连接失败: {e}")
-                    return False
 
-            # 在线程池中执行阻塞操作
+                    # 执行协议握手
+                    handshake_result = client.handshake(
+                        protocol=protocol,
+                        **connection_params
+                    )
+
+                    logger.info(f"Guacamole握手成功: {connection_id}")
+                    return True, handshake_result
+                except Exception as e:
+                    logger.exception(f"Guacamole连接或握手失败: {e}")
+                    try:
+                        client.close()
+                    except:
+                        pass
+                    return False, str(e)
+
+            # 在事件循环中执行阻塞操作
             loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, connect_sync)
+            success, result = await loop.run_in_executor(None, connect_and_handshake)
 
             if not success:
-                logger.error("无法建立 Guacamole 连接")
-                return {"success": False, "error": "连接握手失败"}
+                return {"success": False, "error": f"连接或握手失败: {result}"}
 
-            # 存储客户端对象
+            # 存储客户端对象和参数
             self.connections[connection_id] = {
                 "client": client,
-                "params": connection_params
+                "protocol": protocol,
+                "params": connection_params,
+                "active": True
             }
 
-            # 启动接收消息的任务
-            self.tasks[connection_id] = asyncio.create_task(
-                self._maintain_connection(connection_id, client)
-            )
-
-            logger.info(f"成功创建 Guacamole 连接: {connection_id}")
+            logger.info(f"成功创建 Guacamole 连接: {connection_id}, 协议: {protocol}")
             return {
                 "success": True,
-                "connection_id": connection_id,
-                "params": connection_params
+                "connection_id": connection_id
             }
 
         except Exception as e:
             logger.exception(f"创建 Guacamole 连接失败: {e}")
             return {"success": False, "error": str(e)}
 
-    async def _maintain_connection(self, connection_id: str, client: GuacamoleClient):
-        """维持连接活跃的后台任务"""
-        try:
-            while True:
-                # 在线程池中执行读取操作
-                loop = asyncio.get_event_loop()
+    async def read_instruction(self, connection_id: str) -> Optional[str]:
+        """
+        从Guacamole服务器读取指令数据，返回原始字符串
 
-                def receive_message():
-                    try:
-                        # 非阻塞接收消息，超时返回None
-                        return client.receive()
-                    except Exception as e:
-                        if "timeout" in str(e).lower():
-                            # 超时正常，继续循环
-                            return None
-                        # 其他错误抛出
-                        raise
+        Args:
+            connection_id: 连接标识符
 
-                try:
-                    # 在线程池中执行接收操作
-                    instruction = await loop.run_in_executor(None, receive_message)
-                    print("收到指令：", instruction)
-
-                    if instruction:
-                        if "nop" in instruction:
-                            # 收到心跳包，回复心跳
-                            await loop.run_in_executor(None, lambda: client.send("nop"))
-                        elif "disconnect" in instruction:
-                            # 服务器要求断开
-                            logger.info(f"服务器请求断开连接: {connection_id}")
-                            break
-                        elif "error" in instruction:
-                            # 服务器报告错误
-                            error_msg = instruction if instruction else "未知错误"
-                            logger.error(f"Guacamole服务器报告错误: {error_msg}")
-                            break
-                except Exception as e:
-                    if "closed" in str(e).lower() or "eof" in str(e).lower():
-                        # 连接已关闭
-                        logger.info(f"Guacamole连接已关闭: {connection_id}")
-                        break
-                    else:
-                        logger.exception(f"接收消息时出错: {e}")
-                        break
-
-                # 短暂休息避免CPU使用率过高
-                await asyncio.sleep(0.1)
-
-        except asyncio.CancelledError:
-            logger.info(f"连接维护任务被取消: {connection_id}")
-        except Exception as e:
-            logger.exception(f"连接维护过程中出错: {e}")
-        finally:
-            # 确保连接被清理
-            await self.close_tunnel(connection_id)
-
-    async def send_mouse(self, connection_id: str, x: int, y: int,
-                         left: bool = False, middle: bool = False,
-                         right: bool = False) -> bool:
-        """发送鼠标事件"""
-        try:
-            if connection_id not in self.connections:
-                logger.warning(f"未找到连接: {connection_id}")
-                return False
-
-            conn_data = self.connections[connection_id]
-            client = conn_data["client"]
-
-            # 计算鼠标按钮状态
-            button_mask = 0
-            if left:
-                button_mask |= 1
-            if middle:
-                button_mask |= 2
-            if right:
-                button_mask |= 4
-
-            # 在线程池中执行发送操作
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: client.send("5.mouse,", x, y, button_mask)
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"发送鼠标事件失败: {e}")
-            return False
-
-    async def send_key(self, connection_id: str, pressed: int, keysym: int) -> bool:
-        """发送键盘事件"""
-        try:
-            if connection_id not in self.connections:
-                logger.warning(f"未找到连接: {connection_id}")
-                return False
-
-            conn_data = self.connections[connection_id]
-            client = conn_data["client"]
-
-            # 在线程池中执行发送操作
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: client.send("key", pressed, keysym)
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"发送键盘事件失败: {e}")
-            return False
-
-    async def resize(self, connection_id: str, width: int, height: int) -> bool:
-        """调整屏幕大小"""
-        try:
-            if connection_id not in self.connections:
-                logger.warning(f"未找到连接: {connection_id}")
-                return False
-
-            conn_data = self.connections[connection_id]
-            client = conn_data["client"]
-
-            # 在线程池中执行发送操作
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: client.send(f"4.size,1.0,4.{width},3.{height}")  # 96是DPI
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"调整屏幕大小失败: {e}")
-            return False
-
-    async def close_tunnel(self, connection_id: str) -> bool:
-        """关闭连接隧道"""
-        try:
-            if connection_id not in self.connections:
-                logger.warning(f"未找到连接: {connection_id}")
-                return False
-
-            # 取消维护任务
-            if connection_id in self.tasks:
-                task = self.tasks[connection_id]
-                if not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-                del self.tasks[connection_id]
-
-            # 获取客户端对象
-            conn_data = self.connections.get(connection_id)
-            if conn_data:
-                client = conn_data["client"]
-
-                # 在线程池中执行关闭操作
-                loop = asyncio.get_event_loop()
-
-                def close_client():
-                    try:
-                        # 发送断开连接指令
-                        client.send("disconnect")
-                    except:
-                        pass
-
-                    # 关闭客户端
-                    try:
-                        client.close()
-                    except:
-                        pass
-
-                await loop.run_in_executor(None, close_client)
-
-                # 移除连接
-                del self.connections[connection_id]
-
-            logger.info(f"已关闭连接: {connection_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"关闭连接失败: {e}")
-            return False
-
-
-    async def read_instruction(self, connection_id: str) -> Optional[List[str]]:
-        """读取一条指令"""
+        Returns:
+            Optional[str]: 接收到的原始指令字符串，或者None表示无数据或出错
+        """
         if connection_id not in self.connections:
             return None
 
         conn_data = self.connections[connection_id]
-        client = conn_data["client"]
+        if not conn_data.get("active", False):
+            return None
 
+        client = conn_data["client"]
         loop = asyncio.get_event_loop()
 
-        def receive_data():
-            #try:
-                # 非阻塞方式读取消息
-            return client.receive()
-            #except:
-                #return None
+        try:
+            # 在线程池中非阻塞地接收数据
+            def receive_data():
+                try:
+                    # 直接返回原始指令字符串
+                    return client.receive()
+                except Exception as e:
+                    if "timed out" in str(e).lower():
+                        # 超时是正常的，返回None
+                        return None
+                    # 其他错误记录并返回None
+                    logger.debug(f"接收数据时出错: {e}")
+                    return None
 
-        # 在线程池中执行接收操作
-        instruction = await loop.run_in_executor(None, receive_data)
-        return instruction
-        # if instruction:
-        #     return [instruction.opcode] + list(instruction.args)
-        # return None
+            # 执行接收操作
+            instruction = await loop.run_in_executor(None, receive_data)
+            return instruction
 
+        except Exception as e:
+            logger.error(f"读取指令时出错: {e}")
+            return None
 
     async def send_instruction(self, connection_id: str, instruction: str) -> bool:
-        """发送原始指令"""
+        """
+        发送原始指令字符串到Guacamole服务器
+
+        Args:
+            connection_id: 连接标识符
+            instruction: 原始指令字符串
+
+        Returns:
+            bool: 是否发送成功
+        """
         if connection_id not in self.connections:
+            logger.warning(f"发送指令失败: 未找到连接 {connection_id}")
+            return False
+
+        conn_data = self.connections[connection_id]
+        if not conn_data.get("active", False):
+            logger.warning(f"发送指令失败: 连接 {connection_id} 不活跃")
+            return False
+
+        client = conn_data["client"]
+        loop = asyncio.get_event_loop()
+
+        try:
+            # 在线程池中执行发送操作
+            def send_data():
+                try:
+                    client.send(instruction)
+                    return True
+                except Exception as e:
+                    logger.error(f"发送指令时出错: {e}")
+                    return False
+
+            return await loop.run_in_executor(None, send_data)
+        except Exception as e:
+            logger.error(f"发送指令时出错: {e}")
+            return False
+
+    async def close_tunnel(self, connection_id: str) -> bool:
+        """
+        关闭连接隧道
+
+        Args:
+            connection_id: 连接标识符
+
+        Returns:
+            bool: 是否关闭成功
+        """
+        if connection_id not in self.connections:
+            logger.warning(f"关闭连接失败: 未找到连接 {connection_id}")
             return False
 
         conn_data = self.connections[connection_id]
         client = conn_data["client"]
 
-        loop = asyncio.get_event_loop()
+        # 标记连接为非活跃
+        conn_data["active"] = False
 
-        def send_data():
-            #:
-                client.send(instruction)
-                return True
-            #except:
-                #return False
+        try:
+            # 在线程池中执行关闭操作
+            def close_connection():
+                try:
+                    # 尝试发送断开连接指令
+                    try:
+                        client.send("disconnect;")
+                    except:
+                        pass
 
-        # 在线程池中执行发送操作
-        return await loop.run_in_executor(None, send_data)
+                    # 关闭连接
+                    client.close()
+                    return True
+                except Exception as e:
+                    logger.error(f"关闭连接时出错: {e}")
+                    return False
 
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, close_connection)
+
+            # 无论关闭是否成功，都从连接字典中移除
+            if connection_id in self.connections:
+                del self.connections[connection_id]
+
+            logger.info(f"已关闭连接: {connection_id}")
+            return success
+        except Exception as e:
+            logger.exception(f"关闭连接时出错: {e}")
+
+            # 确保连接从字典中移除
+            if connection_id in self.connections:
+                del self.connections[connection_id]
+
+            return False
+
+
+# 单例实例
 guacamole_service = GuacamoleService()

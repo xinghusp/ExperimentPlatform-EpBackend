@@ -2,551 +2,1010 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>远程桌面实验环境</title>
-
-<script src="/static/js/ArrayBufferReader.js"></script>
-<script src="/static/js/ArrayBufferWriter.js"></script>
-<script src="/static/js/AudioContextFactory.js"></script>
-<script src="/static/js/AudioRecorder.js"></script>
-<script src="/static/js/BlobReader.js"></script>
-<script src="/static/js/BlobWriter.js"></script>
-<script src="/static/js/DataURIReader.js"></script>
-<script src="/static/js/Event.js"></script>
-<script src="/static/js/guacamole-audio-player.js"></script>
-<script src="/static/js/guacamole-client.js"></script>
-<script src="/static/js/guacamole-display.js"></script>
-<script src="/static/js/guacamole-keyboard.js"></script>
-<script src="/static/js/guacamole-layer.js"></script>
-<script src="/static/js/guacamole-mouse.js"></script>
-<script src="/static/js/guacamole-tunnel.js"></script>
-<script src="/static/js/guacamole-websocket.js"></script>
-<script src="/static/js/InputSink.js"></script>
-<script src="/static/js/InputStream.js"></script>
-<script src="/static/js/IntegerPool.js"></script>
-<script src="/static/js/JSONReader.js"></script>
-<script src="/static/js/Namespace.js"></script>
-<script src="/static/js/Object.js"></script>
-<script src="/static/js/OnScreenKeyboard.js"></script>
-<script src="/static/js/OutputStream.js"></script>
-<script src="/static/js/Parser.js"></script>
-<script src="/static/js/Position.js"></script>
-<script src="/static/js/RawAudioFormat.js"></script>
-<script src="/static/js/SessionRecording.js"></script>
-<script src="/static/js/Status.js"></script>
-<script src="/static/js/StringReader.js"></script>
-<script src="/static/js/StringWriter.js"></script>
-<script src="/static/js/Touch.js"></script>
-<script src="/static/js/UTF8Parser.js"></script>
-<script src="/static/js/Version.js"></script>
-<script src="/static/js/VideoPlayer.js"></script>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>远程桌面连接</title>
+    <script type="text/javascript" src="/static/js/all.js"></script>
     <style>
-        body {
+        body, html {
             margin: 0;
             padding: 0;
-            background: #000;
-            width: 100%;
             height: 100%;
+            width: 100%;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
             display: flex;
             flex-direction: column;
-            position: fixed;
+        }
+
+        #status-bar {
+            height: 30px;
+            background-color: #333;
+            color: white;
+            padding: 0 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 100;
             overflow: hidden;
-            font-family: sans-serif;
+        }
+
+        #status-message {
+            color: #90EE90; /* 淡绿色 */
+            font-size: 14px;
+        }
+
+        #countdown {
+            color: #FFD700; /* 金色 */
+            font-weight: bold;
+            font-size: 14px;
         }
 
         #display-container {
             flex: 1;
             position: relative;
-            width: 100%;
-            height: 100%;
             overflow: hidden;
+            background-color: #000;
+            /* 确保能看到内容 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* 提供相对定位，子元素可以使用绝对定位 */
+            position: relative;
         }
 
-        .guac-display {
+        /* 加载动画 */
+        #loading {
             position: absolute;
-        }
-
-        .alert {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 10px;
-            background-color: rgba(248, 215, 218, 0.9);
-            color: #721c24;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             text-align: center;
-            z-index: 1000;
-            display: {{ 'block' if has_time_limit else 'none' }};
-        }
-
-        #status {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 8px;
-            background-color: rgba(0, 0, 0, 0.7);
             color: white;
-            text-align: center;
-            transition: opacity 0.3s;
-            z-index: 1000;
+            z-index: 50;
         }
 
-        #status.hidden {
-            opacity: 0;
-            pointer-events: none;
+        .spinner {
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 5px solid #fff;
+            width: 50px;
+            height: 50px;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
         }
 
-        #error-display {
-            position: fixed;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 错误提示 */
+        #error-overlay {
+            position: absolute;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(0, 0, 0, 0.9);
+            background-color: rgba(0, 0, 0, 0.8);
             color: white;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 1001;
-            padding: 20px;
-            text-align: center;
+            z-index: 100;
             display: none;
         }
 
-        .error-message {
+        #error-message {
+            font-size: 18px;
             margin-bottom: 20px;
+            color: #FF6347; /* 西红柿色 */
+            text-align: center;
+            max-width: 80%;
+            line-height: 1.5;
+        }
+
+        #reconnect-button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #reconnect-button:hover {
+            background-color: #45a049;
+        }
+
+        /* 调试面板 */
+        #debug-panel {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 400px;
+            max-height: 200px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #0F0;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            overflow-y: auto;
+            border-radius: 5px;
+            z-index: 90;
+            display: none;
+        }
+
+        /* 工具栏 */
+        #toolbar {
+            position: fixed;
+            left: 30%;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 1px;
+            border-radius: 1px;
+            z-index: 9990;
+        }
+
+        #toolbar button {
+            background-color: #555;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            margin: 2px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        #toolbar button:hover {
+            background-color: #777;
+        }
+
+        /* 关键添加: 确保guacamole元素可见 */
+        .guac-client {
+            position: absolute;
+            z-index: 20;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        .guac-display {
+            position: absolute !important;
+            z-index: 10;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            background-color: #fff; /* 强制白色背景 */
+        }
+
+        .guac-display canvas {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+         /* 焦点提示遮罩 */
+        #focus-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 150;
+            display: none;
+        }
+
+        #focus-message {
+            background-color: rgba(255, 255, 255, 0.9);
+            color: #333;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
             max-width: 80%;
         }
 
-        .reconnect-button {
-            padding: 10px 20px;
-            background-color: #007bff;
+        /* 显示键盘状态提示 */
+        #keyboard-status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 70;
+        }
+
+        /* 虚拟键盘 */
+        #virtual-keyboard {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: rgba(30, 30, 30, 0.9);
+            padding: 10px 0;
+            display: none;
+            z-index: 200;
+            text-align: center;
+        }
+
+        .keyboard-row {
+            display: flex;
+            justify-content: center;
+            margin: 5px 0;
+        }
+
+        .key {
+            display: inline-block;
+            background-color: #444;
             color: white;
-            border: none;
+            margin: 2px;
+            padding: 8px 10px;
             border-radius: 4px;
             cursor: pointer;
+            min-width: 20px;
+            text-align: center;
+            user-select: none;
+        }
+
+        .key:hover {
+            background-color: #666;
+        }
+
+        .key.pressed {
+            background-color: #0088cc;
+        }
+
+        .key.wide {
+            width: 80px;
+        }
+
+        .key.space {
+            width: 200px;
+        }
+
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            #status-bar {
+                height: 40px;
+                font-size: 12px;
+            }
+
+            #error-message {
+                font-size: 16px;
+            }
         }
     </style>
 </head>
 <body>
-    <div id="alert" class="alert">
-        剩余实验时间: <span id="remaining-time">计算中...</span>
+    <div id="status-bar">
+        <div id="status-message">正在初始化...</div>
+        {% if has_time_limit %}
+        <div id="countdown">剩余时间: <span id="timer">{{ remaining_time // 60 }}:{{ '%02d' % (remaining_time % 60) }}</span></div>
+        {% endif %}
     </div>
+
     <div id="display-container"></div>
-    <div id="status">连接中...</div>
-    <div id="error-display">
-        <div class="error-message">连接错误</div>
-        <button class="reconnect-button" onclick="reconnect()">重新连接</button>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>正在加载远程桌面...</div>
     </div>
 
-    <script>
-        // 初始化变量
-        const studentTaskId = {{ student_task_id }};
-        const hasTimeLimit = {{ 'true' if has_time_limit else 'false' }};
-        const initialRemainingTime = {{ remaining_time or 0 }};
-        let remainingSeconds = initialRemainingTime;
+    <div id="error-overlay">
+        <div id="error-message"></div>
+        <button id="reconnect-button">重新连接</button>
+    </div>
+    <div id="focus-overlay">
+        <div id="focus-message">
+            <h3>请点击此处激活键盘输入</h3>
+            <p>由于浏览器安全限制，需要点击此区域获取键盘焦点</p>
+        </div>
+    </div>
 
-        // WebSocket连接URL - 不要添加任何查询参数
-        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/guacamole/ws/${studentTaskId}`;
+    <div id="toolbar">
+        <button id="toggle-debug" style="display: none">调试</button>
+        <button id="fix-display">修复显示</button>
+        <button id="reconnect">重连</button>
+        <button id="toggle-keyboard">虚拟键盘</button>
+        <button id="open-window">新窗口打开</button>
+    </div>
+    <div id="keyboard-status">键盘状态: 未激活</div>
 
-        // DOM元素引用
-        const statusDisplay = document.getElementById('status');
-        const displayContainer = document.getElementById('display-container');
-        const errorDisplay = document.getElementById('error-display');
-        const errorMessage = document.querySelector('.error-message');
+    <div id="virtual-keyboard">
+        <div class="keyboard-row">
+            <div class="key" data-key="65">A</div>
+            <div class="key" data-key="66">B</div>
+            <div class="key" data-key="67">C</div>
+            <div class="key" data-key="68">D</div>
+            <div class="key" data-key="69">E</div>
+            <div class="key" data-key="70">F</div>
+            <div class="key" data-key="71">G</div>
+            <div class="key" data-key="72">H</div>
+            <div class="key" data-key="73">I</div>
+            <div class="key" data-key="74">J</div>
+            <div class="key" data-key="75">K</div>
+            <div class="key" data-key="76">L</div>
+            <div class="key" data-key="77">M</div>
+        </div>
+        <div class="keyboard-row">
+            <div class="key" data-key="78">N</div>
+            <div class="key" data-key="79">O</div>
+            <div class="key" data-key="80">P</div>
+            <div class="key" data-key="81">Q</div>
+            <div class="key" data-key="82">R</div>
+            <div class="key" data-key="83">S</div>
+            <div class="key" data-key="84">T</div>
+            <div class="key" data-key="85">U</div>
+            <div class="key" data-key="86">V</div>
+            <div class="key" data-key="87">W</div>
+            <div class="key" data-key="88">X</div>
+            <div class="key" data-key="89">Y</div>
+            <div class="key" data-key="90">Z</div>
+        </div>
+        <div class="keyboard-row">
+            <div class="key" data-key="49">1</div>
+            <div class="key" data-key="50">2</div>
+            <div class="key" data-key="51">3</div>
+            <div class="key" data-key="52">4</div>
+            <div class="key" data-key="53">5</div>
+            <div class="key" data-key="54">6</div>
+            <div class="key" data-key="55">7</div>
+            <div class="key" data-key="56">8</div>
+            <div class="key" data-key="57">9</div>
+            <div class="key" data-key="48">0</div>
+        </div>
+        <div class="keyboard-row">
+            <div class="key" data-key="9">Tab</div>
+            <div class="key" data-key="13">Enter</div>
+            <div class="key space" data-key="32"  >Space</div>
+            <div class="key" data-key="8">Backsp</div>
+            <div class="key" data-key="27">Esc</div>
+            <div class="key" data-key="37">←</div>
+            <div class="key" data-key="38">↑</div>
+            <div class="key" data-key="39">→</div>
+            <div class="key" data-key="40">↓</div>
+        </div>
+    </div>
 
-        // Guacamole客户端及隧道
-        let guacTunnel = null;
-        let guacClient = null;
+    <div id="debug-panel"></div>
 
-        // 显示状态消息
-        function showStatus(message) {
-            statusDisplay.textContent = message;
-            statusDisplay.classList.remove('hidden');
+    <script type="text/javascript">
+        // 配置
+        const clientWidth=window.innerWidth*0.9;
+        const clientHeight=window.innerHeight*0.9;
+        var CONFIG = {
+            wsUrl: "ws://" + window.location.host + "/api/v1/guacamole/ws/{{ student_task_id }}/"+clientWidth+"/"+clientHeight,
+            debug: false,  // 开启调试
+            reconnectDelay: 2000,  // 重连延迟（毫秒）
+            maxReconnectAttempts: 3,  // 最大重连尝试次数
+            isInIframe: (window.self !== window.top) // 检测是否在iframe中
+        };
 
-            // 3秒后隐藏状态
-            setTimeout(() => {
-                statusDisplay.classList.add('hidden');
-            }, 3000);
+        // 全局变量
+        var guacClient = null;
+        var guacTunnel = null;
+        var reconnectAttempts = 0;
+        var hasKeyboardFocus = false;
+
+        // DOM元素
+        var display = document.getElementById('display-container');
+        var status = document.getElementById('status-message');
+        var loading = document.getElementById('loading');
+        var errorOverlay = document.getElementById('error-overlay');
+        var errorMessage = document.getElementById('error-message');
+        var reconnectButton = document.getElementById('reconnect-button');
+        var debugPanel = document.getElementById('debug-panel');
+        var toolbarEl = document.getElementById('toolbar');
+        var toggleDebugEl = document.getElementById('toggle-debug');
+        var fixDisplayEl = document.getElementById('fix-display');
+        var reconnectEl = document.getElementById('reconnect');
+        var focusOverlay = document.getElementById('focus-overlay');
+        var keyboardStatus = document.getElementById('keyboard-status');
+        var virtualKeyboard = document.getElementById('virtual-keyboard');
+
+        // 日志功能
+        function log(message, type) {
+            console.log(message);
+
+            if (CONFIG.debug) {
+                var entry = document.createElement('div');
+                entry.textContent = message;
+
+                if (type === 'error') {
+                    entry.style.color = '#FF6347'; // 红色
+                } else if (type === 'success') {
+                    entry.style.color = '#90EE90'; // 绿色
+                }
+
+                debugPanel.appendChild(entry);
+                debugPanel.scrollTop = debugPanel.scrollHeight;
+
+                // 限制日志条目数量
+                if (debugPanel.childNodes.length > 100) {
+                    debugPanel.removeChild(debugPanel.firstChild);
+                }
+            }
         }
 
-        // 显示错误
+        // 更新状态信息
+        function updateStatus(message) {
+            document.getElementById('status-message').innerText = message;
+            log("状态: " + message);
+        }
+
+        // 显示错误信息
         function showError(message) {
             errorMessage.textContent = message;
-            errorDisplay.style.display = 'flex';
+            errorOverlay.style.display = 'flex';
+            log("错误: " + message, 'error');
         }
 
-        // 隐藏错误
+        // 隐藏错误信息
         function hideError() {
-            errorDisplay.style.display = 'none';
+            errorOverlay.style.display = 'none';
         }
 
-        // 自定义WebSocket隧道实现，避免添加查询参数
-        function CustomWebSocketTunnel(url) {
+        // 检查Guacamole库
+        function checkGuacamole() {
+            if (typeof Guacamole === 'undefined') {
+                showError("无法加载Guacamole客户端库，请检查网络连接并刷新页面。");
+                return false;
+            }
 
-            /**
-             * 引用隧道本身
-             */
-            var tunnel = this;
+            log("Guacamole库已加载，版本: " + (Guacamole.API_VERSION || "未知"), 'success');
+            return true;
+        }
 
-            /**
-             * WebSocket状态常量
-             */
-            this.State = Guacamole.Tunnel.State;
+        // 修复显示
+        function fixDisplay() {
+            if (!guacClient) return;
 
-            /**
-             * 存储是否已建立连接
-             */
-            var connected = false;
+            try {
+                log("尝试修复显示...");
 
-            /**
-             * WebSocket对象
-             */
-            var socket = null;
+                // 获取Guacamole显示和元素
+                var guacDisplay = guacClient.getDisplay();
+                var element = guacDisplay.getElement();
 
-            // 事件回调
-            this.onstatechange = null;
-            this.oninstruction = null;
-
-            /**
-             * 将指定指令发送到服务器
-             */
-            this.sendMessage = function(elements) {
-                // 如果未连接则抛出错误
-                if (!connected)
-                    console.error("not connected");
+                if (!element) {
+                    log("无法找到显示元素", "error");
                     return;
-                    // new Guacamole.Status.Code.SERVER_ERROR;
-
-                // 构建Guacamole协议消息
-                var message = "";
-                for (var i=0; i<elements.length; i++) {
-                    message += elements[i].length + "." + elements[i];
-                    if (i < elements.length-1)
-                        message += ",";
-                }
-                message += ";";
-
-                socket.send(message);
-            };
-
-            /**
-             * 关闭隧道
-             */
-            this.disconnect = function() {
-                if (socket) {
-                    socket.close();
-                    socket = null;
                 }
 
-                connected = false;
-            };
+                // 确保元素可见
+                element.style.display = "block";
+                element.style.visibility = "visible";
+                element.style.opacity = "1";
 
-            /**
-             * 连接到隧道
-             */
-            this.connect = function() {
-                // 使用无参数的URL直接创建WebSocket
-                socket = new WebSocket(url);
+                // 添加辅助类，确保CSS应用
+                element.parentNode.classList.add("guac-client");
+                element.classList.add("guac-display");
 
-                socket.onopen = function(event) {
-                    connected = true;
-                    if (tunnel.onstatechange)
-                        tunnel.onstatechange(tunnel.State.OPEN);
+                // 确保所有Canvas元素可见
+                var canvases = element.getElementsByTagName("canvas");
+                for (var i = 0; i < canvases.length; i++) {
+                    canvases[i].style.display = "block";
+                    canvases[i].style.visibility = "visible";
+                    canvases[i].style.opacity = "1";
+                    canvases[i].style.position = "absolute"; // 确保定位正确
+                }
+
+                // 检查父元素中的样式计算
+                var computedStyle = window.getComputedStyle(element);
+                log("显示元素计算样式: " +
+                    "display=" + computedStyle.display + ", " +
+                    "visibility=" + computedStyle.visibility + ", " +
+                    "opacity=" + computedStyle.opacity + ", " +
+                    "position=" + computedStyle.position + ", " +
+                    "z-index=" + computedStyle.zIndex);
+
+                // 重新设置显示大小
+                resizeDisplay();
+
+                log("显示修复完成", "success");
+            } catch (e) {
+                log("修复显示出错: " + e.message, "error");
+            }
+        }
+
+        // 初始化Guacamole客户端
+        function initGuacamole() {
+            try {
+                // 显示连接状态
+                updateStatus("正在初始化连接...");
+
+                // 创建WebSocket隧道
+                guacTunnel = new Guacamole.WebSocketTunnel(CONFIG.wsUrl);
+
+                // 创建Guacamole客户端
+                guacClient = new Guacamole.Client(guacTunnel);
+                log("已创建Guacamole客户端");
+
+                // 获取显示并添加到容器
+                var guacDisplay = guacClient.getDisplay().getElement();
+
+                // 清空容器
+                while (display.firstChild) {
+                    display.removeChild(display.firstChild);
+                }
+
+                display.appendChild(guacDisplay);
+
+                // 确保显示元素可见
+                guacDisplay.style.display = "block";
+                guacDisplay.style.visibility = "visible";
+                guacDisplay.style.opacity = "1";
+                guacDisplay.style.backgroundColor = "#fff"; // 添加白色背景便于看到变化
+
+                log("已添加远程桌面显示元素到DOM");
+
+                // 处理错误
+                guacClient.onerror = function(error) {
+                    log("客户端错误: " + JSON.stringify(error), 'error');
+                    showError("远程桌面连接错误: " + error.message);
                 };
 
-                socket.onclose = function(event) {
-                    connected = false;
-                    if (tunnel.onstatechange)
-                        tunnel.onstatechange(tunnel.State.CLOSED);
-                };
+                // 处理状态变化 - 使用正确的状态常量
+                guacClient.onstatechange = function(state) {
+                    log("客户端状态: " + state);
 
-                socket.onerror = function(event) {
-                    connected = false;
-                    if (tunnel.onstatechange)
-                        tunnel.onstatechange(tunnel.State.CLOSED);
-                };
+                    if (state === 3) {
+                        loading.style.display = 'none';
+                        updateStatus("已连接到远程桌面");
+                        reconnectAttempts = 0; // 重置重连尝试次数
+                        if (CONFIG.isInIframe) {
+            setTimeout(showFocusPrompt, 2000);
+        }
 
-                socket.onmessage = function(event) {
-                    var message = event.data;
-                    var instructions = message.split(";");
-
-                    for (var i=0; i<instructions.length; i++) {
-                        var instruction = instructions[i];
-                        if (instruction.length > 0) {
-                            // 解析指令
-                            var elements = [];
-                            var elementStart = 0;
-                            var elementEnd;
-
-                            var current = instruction;
-
-                            // 解析每个元素
-                            while (elementStart < current.length) {
-                                // 查找元素长度后面的点
-                                var dot = current.indexOf(".", elementStart);
-                                if (dot === -1)
-                                    throw new Error("指令格式无效");
-
-                                // 解析长度
-                                var length = parseInt(current.substring(elementStart, dot));
-                                if (isNaN(length))
-                                    throw new Error("无效的元素长度");
-
-                                // 计算元素结束位置
-                                elementEnd = dot + length + 1;
-                                if (elementEnd > current.length)
-                                    throw new Error("元素长度不正确");
-
-                                // 提取元素
-                                var element = current.substring(dot + 1, elementEnd);
-                                elements.push(element);
-
-                                // 跳过逗号或分号
-                                elementStart = elementEnd + 1;
-                                if (elementStart < current.length && current.charAt(elementStart - 1) === ',')
-                                    continue;
-                                break;
-                            }
-
-                            // 调用指令处理
-                            if (tunnel.oninstruction) {
-                                // 获取操作码和参数
-                                var opcode = elements.shift();
-                                tunnel.oninstruction(opcode, elements);
-                            }
-                        }
+                        // 连接成功后执行显示修复
+                        setTimeout(function (){
+                            fixDisplay();
+                            loading.style.display = 'none';
+                        }, 3000);
+                    }
+                    else if (state === 5) {
+                        updateStatus("已断开连接");
                     }
                 };
-            };
+
+                // 监听隧道状态 - 使用正确的状态常量
+                guacTunnel.onstatechange = function(state) {
+                    if (state === Guacamole.Tunnel.STATE_CLOSED && reconnectAttempts < CONFIG.maxReconnectAttempts) {
+                        log("连接已关闭，准备重连...");
+                        setTimeout(reconnect, CONFIG.reconnectDelay);
+                    }
+                };
+
+                // 处理显示大小变化
+                guacClient.getDisplay().onresize = function(width, height) {
+                    log("显示尺寸变更: " + width + "x" + height, 'success');
+                    resizeDisplay();
+                };
+
+                // 设置鼠标
+                var mouse = new Guacamole.Mouse(guacDisplay);
+                mouse.onmousedown =
+                mouse.onmouseup =
+                mouse.onmousemove = function(mouseState) {
+                    guacClient.sendMouseState(mouseState);
+                };
+
+                // 设置键盘
+                // var keyboard = new Guacamole.Keyboard(document);
+                // keyboard.onkeydown = function(keysym) {
+                //     guacClient.sendKeyEvent(1, keysym);
+                // };
+                // keyboard.onkeyup = function(keysym) {
+                //     guacClient.sendKeyEvent(0, keysym);
+                // };
+                // 设置键盘 - 使用增强版键盘处理
+                setupEnhancedKeyboard();
+
+                // 监听窗口大小变化
+                window.addEventListener('resize', resizeDisplay);
+
+                // 启用画布绘制监控
+                //enableCanvasMonitoring();
+
+                // 连接客户端
+                updateStatus("正在连接...");
+                guacClient.connect();
+                log("开始连接");
+                // 设置内部点击处理，用于获取焦点
+                setupFocusHandling();
+
+                // 初始化虚拟键盘
+                setupVirtualKeyboard();
+
+                return true;
+            } catch (e) {
+                log("初始化失败: " + e.message, 'error');
+                showError("初始化远程桌面失败: " + e.message);
+                return false;
+            }
         }
 
-        // 继承Guacamole.Tunnel基类
-        CustomWebSocketTunnel.prototype = new Guacamole.Tunnel();
+        // 替换原有的键盘设置代码
+function setupEnhancedKeyboard() {
+    try {
+        // 创建Guacamole键盘对象
+        guacKeyboard = new Guacamole.Keyboard(document);
 
-        // 创建Guacamole客户端
-        function initializeGuacamoleClient() {
-            // 创建自定义WebSocket隧道
-            guacTunnel = new CustomWebSocketTunnel(wsUrl);
-
-            // 创建Guacamole客户端
-            guacClient = new Guacamole.Client(guacTunnel);
-
-            // 获取显示元素，并添加到容器中
-            const display = guacClient.getDisplay().getElement();
-            displayContainer.innerHTML = '';
-            displayContainer.appendChild(display);
-
-            // 设置状态改变处理
-            guacClient.onstatechange = function(state) {
-                switch (state) {
-                    case 0: // IDLE
-                        showStatus('等待连接');
-                        break;
-                    case 1: // CONNECTING
-                        showStatus('正在连接...');
-                        break;
-                    case 2: // CONNECTED
-                        showStatus('连接已建立');
-                        break;
-                    case 3: // DISCONNECTING
-                        showStatus('正在断开连接');
-                        break;
-                    case 4: // DISCONNECTED
-                        showStatus('连接已断开');
-                        break;
-                    default:
-                        showStatus('未知状态: ' + state);
-                }
-            };
-
-            // 错误处理
-            guacClient.onerror = function(error) {
-                console.error('Guacamole错误:', error);
-                showError(`远程桌面错误: ${error.message || '未知错误'}`);
-            };
-
-            // 设置鼠标处理
-            const mouse = new Guacamole.Mouse(display);
-
-            mouse.onmousedown =
-            mouse.onmouseup =
-            mouse.onmousemove = function(mouseState) {
-                guacClient.sendMouseState(mouseState);
-            };
-
-            // 设置键盘处理
-            const keyboard = new Guacamole.Keyboard(document);
-
-            keyboard.onkeydown = function(keysym) {
+        // 键盘事件处理
+        guacKeyboard.onkeydown = function(keysym) {
+            if (guacClient && guacClient.currentState === Guacamole.Client.STATE_CONNECTED) {
                 guacClient.sendKeyEvent(1, keysym);
-                return false;
-            };
-
-            keyboard.onkeyup = function(keysym) {
-                guacClient.sendKeyEvent(0, keysym);
-                return false;
-            };
-
-            // 窗口大小改变时调整
-            function updateDisplaySize() {
-                const width = window.innerWidth;
-                const height = window.innerHeight;
-
-                if (guacClient) {
-                    guacClient.sendSize(width, height);
-                }
+                hasKeyboardFocus = true;
+                updateKeyboardStatus(true);
+                return false; // 阻止默认行为
             }
+        };
 
-            window.addEventListener('resize', updateDisplaySize);
+        guacKeyboard.onkeyup = function(keysym) {
+            if (guacClient && guacClient.currentState === Guacamole.Client.STATE_CONNECTED) {
+                guacClient.sendKeyEvent(0, keysym);
+                hasKeyboardFocus = true;
+                updateKeyboardStatus(true);
+                return false; // 阻止默认行为
+            }
+        };
 
-            // 禁用右键菜单，避免干扰远程桌面操作
-            document.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                return false;
+        // 处理窗口/iframe焦点
+        window.addEventListener('focus', function() {
+            hasKeyboardFocus = true;
+            updateKeyboardStatus(true);
+        });
+
+        window.addEventListener('blur', function() {
+            hasKeyboardFocus = false;
+            updateKeyboardStatus(false);
+        });
+
+        // iframe环境下添加消息通信
+        if (CONFIG.isInIframe) {
+            setupIframeMessaging();
+        }
+
+    } catch (e) {
+        log("设置键盘处理失败: " + e.message, 'error');
+    }
+}
+// 新增函数
+function setupIframeMessaging() {
+    try {
+        // 父窗口通信
+        window.addEventListener('message', function(event) {
+            var data = event.data;
+
+            if (typeof data === 'object' && data !== null && data.type === 'keyEvent') {
+                // 处理外部键盘事件
+                handleExternalKeyEvent(data.pressed, data.keysym);
+            }
+        });
+
+        // 通知父窗口已准备好
+        window.parent.postMessage({
+            type: 'guacReady',
+            taskId: '{{ student_task_id }}'
+        }, '*');
+
+    } catch (e) {
+        log("设置iframe消息通信失败: " + e.message, 'error');
+    }
+}
+
+        // 新增函数 - 处理外部键盘事件
+        function handleExternalKeyEvent(pressed, keysym) {
+            if (guacClient && guacClient.currentState === Guacamole.Client.STATE_CONNECTED) {
+                guacClient.sendKeyEvent(pressed ? 1 : 0, keysym);
+            }
+        }
+        // 新增函数 - 在客户端连接后调用
+        function showFocusPrompt() {
+            if (!hasKeyboardFocus && CONFIG.isInIframe) {
+                focusOverlay.style.display = 'flex';
+            }
+        }
+        // 设置焦点处理
+        function setupFocusHandling() {
+            // 点击显示区域获取焦点
+            display.addEventListener('mousedown', function(e) {
+                focusOverlay.style.display = 'none';
+                hasKeyboardFocus = true;
+                updateKeyboardStatus(true);
+
+                // 通知父窗口我们获取了焦点
+                if (CONFIG.isInIframe) {
+                    try {
+                        window.parent.postMessage({
+                            type: 'guacFocused',
+                            taskId: '{{ student_task_id }}'
+                        }, '*');
+                    } catch (e) {
+                        log("发送焦点消息失败: " + e.message, 'error');
+                    }
+                }
             });
 
-            // 连接到Guacamole服务器
-            guacClient.connect();
+            // 点击提示覆盖层获取焦点
+            focusOverlay.addEventListener('click', function(e) {
+                focusOverlay.style.display = 'none';
+                hasKeyboardFocus = true;
+                updateKeyboardStatus(true);
 
-            // 初始调整大小
-            setTimeout(updateDisplaySize, 1000);
-
-            return {
-                client: guacClient,
-                tunnel: guacTunnel
-            };
+                // 通知父窗口我们获取了焦点
+                if (CONFIG.isInIframe) {
+                    try {
+                        window.parent.postMessage({
+                            type: 'guacFocused',
+                            taskId: '{{ student_task_id }}'
+                        }, '*');
+                    } catch (e) {
+                        log("发送焦点消息失败: " + e.message, 'error');
+                    }
+                }
+            });
         }
 
-        // 断开连接
-        function disconnect() {
-            if (guacClient) {
-                try {
-                    guacClient.disconnect();
-                } catch (e) {
-                    console.error('断开连接时出错:', e);
-                }
-                guacClient = null;
-            }
+// 添加焦点处理
+        focusOverlay.addEventListener('click', function() {
+            focusOverlay.style.display = 'none';
+            hasKeyboardFocus = true;
+            updateKeyboardStatus(true);
 
-            if (guacTunnel) {
-                try {
-                    guacTunnel.disconnect();
-                } catch (e) {
-                    console.error('关闭隧道时出错:', e);
-                }
-                guacTunnel = null;
+            // 通知父窗口已获取焦点
+            if (CONFIG.isInIframe) {
+                window.parent.postMessage({
+                    type: 'guacFocused',
+                    taskId: '{{ student_task_id }}'
+                }, '*');
+            }
+        });
+
+        function updateKeyboardStatus(active) {
+            keyboardStatus.textContent = "键盘状态: " + (active ? "已激活" : "未激活");
+            keyboardStatus.style.color = active ? "#90EE90" : "#FFD700";
+        }
+
+        // 设置虚拟键盘
+function setupVirtualKeyboard() {
+    var keys = document.querySelectorAll('.key');
+
+    // 为每个键添加点击事件
+    keys.forEach(function(key) {
+        key.addEventListener('mousedown', function() {
+            var keyCode = parseInt(key.getAttribute('data-key'), 10);
+            if (keyCode && guacClient) {
+                // 添加按下效果
+                key.classList.add('pressed');
+
+                // 转换为 keysym 并发送按键按下事件
+                var keysym = keyCode;
+                guacClient.sendKeyEvent(1, keysym);
+                log("虚拟键盘按下: " + keysym);
+            }
+        });
+
+        key.addEventListener('mouseup', function() {
+            var keyCode = parseInt(key.getAttribute('data-key'), 10);
+            if (keyCode && guacClient) {
+                // 移除按下效果
+                key.classList.remove('pressed');
+
+                // 转换为 keysym 并发送按键释放事件
+                var keysym = keyCode;
+                guacClient.sendKeyEvent(0, keysym);
+                log("虚拟键盘释放: " + keysym);
+            }
+        });
+
+        // 防止触摸设备上的滚动
+        key.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+
+            var keyCode = parseInt(key.getAttribute('data-key'), 10);
+            if (keyCode && guacClient) {
+                // 添加按下效果
+                key.classList.add('pressed');
+
+                // 转换为 keysym 并发送按键按下事件
+                var keysym = keyCode;
+                guacClient.sendKeyEvent(1, keysym);
+                log("虚拟键盘触摸按下: " + keysym);
+            }
+        });
+
+        key.addEventListener('touchend', function(e) {
+            e.preventDefault();
+
+            var keyCode = parseInt(key.getAttribute('data-key'), 10);
+            if (keyCode && guacClient) {
+                // 移除按下效果
+                key.classList.remove('pressed');
+
+                // 转换为 keysym 并发送按键释放事件
+                var keysym = keyCode;
+                guacClient.sendKeyEvent(0, keysym);
+                log("虚拟键盘触摸释放: " + keysym);
+            }
+        });
+    });
+
+    // 设置虚拟键盘切换
+    document.getElementById('toggle-keyboard').addEventListener('click', function() {
+        if (virtualKeyboard.style.display === 'block') {
+            virtualKeyboard.style.display = 'none';
+        } else {
+            virtualKeyboard.style.display = 'block';
+        }
+    });
+
+    log("虚拟键盘已初始化");
+}
+
+
+
+        // 启用画布绘制监控
+        function enableCanvasMonitoring() {
+            try {
+                // 监控图像绘制
+                var originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+                CanvasRenderingContext2D.prototype.drawImage = function() {
+                    //log("绘制图像: " + Array.prototype.slice.call(arguments).join(", "));
+                    return originalDrawImage.apply(this, arguments);
+                };
+
+                log("已启用画布绘制监控");
+            } catch (e) {
+                log("启用画布监控失败: " + e.message, 'error');
+            }
+        }
+
+        // 调整显示尺寸
+        function resizeDisplay() {
+            if (!guacClient) return;
+
+            try {
+                var guacDisplay = guacClient.getDisplay();
+                var element = guacDisplay.getElement();
+
+                if (!element) return;
+
+                var displayWidth = guacDisplay.getWidth();
+                var displayHeight = guacDisplay.getHeight();
+
+                if (!displayWidth || !displayHeight) return;
+
+                var containerWidth = display.clientWidth;
+                var containerHeight = display.clientHeight;
+
+                var scaleX = containerWidth / displayWidth;
+                var scaleY = containerHeight / displayHeight;
+                var scale = Math.min(scaleX, scaleY, 1.0); // 限制最大缩放为1.0
+
+                var scaledWidth = displayWidth * scale;
+                var scaledHeight = displayHeight * scale;
+
+                var leftOffset = (containerWidth - scaledWidth) / 2;
+                var topOffset = (containerHeight - scaledHeight) / 2;
+
+                // 应用缩放和定位
+                element.style.position = "absolute";
+                element.style.top = topOffset + "px";
+                element.style.left = leftOffset + "px";
+                element.style.width = scaledWidth + "px";
+                element.style.height = scaledHeight + "px";
+
+                // 确保元素可见
+                element.style.display = "block";
+                element.style.visibility = "visible";
+                element.style.opacity = "1";
+
+                log("调整显示尺寸: 缩放 " + scale.toFixed(2) +
+                    ", 位置 (" + leftOffset.toFixed(0) + "," + topOffset.toFixed(0) + ")" +
+                    ", 尺寸 " + scaledWidth.toFixed(0) + "x" + scaledHeight.toFixed(0));
+            } catch (e) {
+                log("调整显示尺寸出错: " + e.message, 'error');
             }
         }
 
         // 重新连接
         function reconnect() {
             hideError();
-            disconnect();
-            setTimeout(() => {
-                initializeGuacamoleClient();
-            }, 1000);
+            loading.style.display = 'block';
+            reconnectAttempts++;
+            updateStatus("正在重新连接... (" + reconnectAttempts + "/" + CONFIG.maxReconnectAttempts + ")");
+
+            // 清理现有连接
+            if (guacClient) {
+                try {
+                    guacClient.disconnect();
+                } catch (e) {
+                    log("断开连接出错: " + e.message);
+                }
+
+                // 移除显示元素
+                while (display.firstChild) {
+                    display.removeChild(display.firstChild);
+                }
+
+                guacClient = null;
+                guacTunnel = null;
+            }
+
+            // 重新初始化
+            setTimeout(function() {
+                initGuacamole();
+            }, 500);
         }
 
-        // 更新剩余时间显示
-        function updateRemainingTime() {
-            if (!hasTimeLimit) return;
+        // 应用初始化
+        function init() {
+            log("初始化远程桌面...");
 
-            const minutes = Math.floor(remainingSeconds / 60);
-            const seconds = remainingSeconds % 60;
-            document.getElementById('remaining-time').textContent =
-                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            // 显示调试面板
+            debugPanel.style.display = "block";
+
+            // 检查Guacamole库
+            if (!checkGuacamole()) {
+                return;
+            }
+
+            // 绑定按钮事件
+            toggleDebugEl.addEventListener('click', function() {
+                debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+            });
+            fixDisplayEl.addEventListener('click', fixDisplay);
+            reconnectEl.addEventListener('click', reconnect);
+            reconnectButton.addEventListener('click', reconnect);
+            document.getElementById('open-window').addEventListener('click', function() {
+    var url = window.location.href;
+    window.open(url, '_blank', 'width=1280,height=720');
+});
+
+            // 初始化客户端
+            initGuacamole();
+        }
+
+        // 启动应用
+        init();
+
+        // 处理倒计时
+        {% if has_time_limit %}
+        var timerElement = document.getElementById('timer');
+        var remainingSeconds = {{ remaining_time }};
+
+        function updateTimer() {
+            var minutes = Math.floor(remainingSeconds / 60);
+            var seconds = remainingSeconds % 60;
+            timerElement.textContent = minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
 
             if (remainingSeconds <= 0) {
-                clearInterval(timerInterval);
-                disconnect();
-                alert('实验时间已结束');
-            }
-
-            remainingSeconds--;
-        }
-
-        // 心跳检测
-        let heartbeatInterval;
-        let missedHeartbeats = 0;
-
-        function startHeartbeat() {
-            heartbeatInterval = setInterval(() => {
-                fetch(`/api/v1/tasks/student/${studentTaskId}/heartbeat`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    }
-                })
-                .then(response => {
-                    if (!response.ok) throw new Error('心跳检测失败');
-                    return response.json();
-                })
-                .then(data => {
-                    missedHeartbeats = 0;
-                })
-                .catch(err => {
-                    console.error('心跳错误:', err);
-                    missedHeartbeats++;
-                    if (missedHeartbeats >= 4) {
-                        clearInterval(heartbeatInterval);
-                        endExperiment();
-                        showError('连接中断，实验将自动结束');
-                    }
-                });
-            }, 30000); // 每30秒一次
-        }
-
-        // 结束实验
-        function endExperiment() {
-            disconnect();
-
-            // 可以添加结束实验的API调用
-            fetch(`/api/v1/tasks/student/${studentTaskId}/end`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                showError("实验时间已结束");
+                if (guacClient) {
+                    guacClient.disconnect();
                 }
-            })
-            .catch(err => console.error('结束实验错误:', err));
+            } else {
+                remainingSeconds--;
+                setTimeout(updateTimer, 1000);
+            }
         }
 
-        // 启动计时器（如果有时间限制）
-        let timerInterval;
-        if (hasTimeLimit) {
-            updateRemainingTime();
-            timerInterval = setInterval(updateRemainingTime, 1000);
-        }
-
-        // 页面卸载前执行清理
-        window.addEventListener('beforeunload', function() {
-            disconnect();
-
-            if (heartbeatInterval) {
-                clearInterval(heartbeatInterval);
-            }
-
-            if (timerInterval) {
-                clearInterval(timerInterval);
-            }
-        });
-
-        // 启动心跳检测
-        //startHeartbeat();
-
-        // 初始化Guacamole客户端
-        initializeGuacamoleClient();
-
-        // 添加自动重连
-        window.addEventListener('online', function() {
-            if (!guacClient) {
-                reconnect();
-            }
-        });
+        updateTimer();
+        {% endif %}
     </script>
 </body>
 </html>
