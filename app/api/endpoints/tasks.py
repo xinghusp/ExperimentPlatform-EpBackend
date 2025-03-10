@@ -272,8 +272,11 @@ def list_student_tasks(
                                                   StudentTaskDb.student_id == current_student["id"],
                                                   StudentTaskDb.task_id == task.id
                                               ).scalar()
+        else:
+            task_data["remaining_attempts"] = task.max_attempts
 
         result.append(task_data)
+
 
     return result
 
