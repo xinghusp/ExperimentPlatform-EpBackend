@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List, Any, Optional
 
 import pytz
@@ -70,13 +71,40 @@ def create_ecs_instance(student_task_id: int, task_id: int) -> Dict[str, Any]:
         db.add(student_task_obj)
         db.commit()
 
+        # 如果提供了多组实例类型、安全组、VSwitch，则随机选择一组
+        # 必须要一一对应
+        min_index = 99999
+        if ',' in task_obj.instance_type:
+            instance_types = task_obj.instance_type.split(',')
+            if len(instance_types)<min_index:
+                min_index = len(instance_types)
+        if ',' in task_obj.security_group_id:
+            security_group_ids = task_obj.security_group_id.split(',')
+            if len(security_group_ids)<min_index:
+                min_index = len(security_group_ids)
+        if ',' in task_obj.vswitch_id:
+            vswitch_ids = task_obj.vswitch_id.split(',')
+            if len(vswitch_ids)<min_index:
+                min_index = len(vswitch_ids)
+
+        if min_index != 99999:
+            random_index=random.Random().randint(0,min_index-1)
+            c_instance_type=instance_types[random_index]
+            c_security_group_id=security_group_ids[random_index]
+            c_vswitch_id=vswitch_ids[random_index]
+        else:
+            c_instance_type=task_obj.instance_type
+            c_security_group_id=task_obj.security_group_id
+            c_vswitch_id=task_obj.vswitch_id
+
+
         # 调用阿里云SDK创建ECS实例
         result = ali_cloud_service.create_ecs_instance(
             region_id=task_obj.region_id,
             image_id=task_obj.image_id,
-            instance_type=task_obj.instance_type,
-            security_group_id=task_obj.security_group_id,
-            vswitch_id=task_obj.vswitch_id,
+            instance_type=c_instance_type,
+            security_group_id=c_security_group_id,
+            vswitch_id=c_vswitch_id,
             internet_max_bandwidth_out=task_obj.internet_max_bandwidth_out,
             spot_strategy=task_obj.spot_strategy,
             password=task_obj.password,
@@ -94,6 +122,7 @@ def create_ecs_instance(student_task_id: int, task_id: int) -> Dict[str, Any]:
 
             # 更新学生任务状态
             student_task_obj.ecs_instance_status = "Error"
+            student_task_obj.attempt_number=student_task_obj.attempt_number-1
             db.add(student_task_obj)
             db.commit()
 
