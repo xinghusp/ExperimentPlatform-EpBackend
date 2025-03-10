@@ -84,6 +84,7 @@ class AliCloudService:
         request = DescribeInstancesRequest()
         request.set_accept_format('json')
         request.set_InstanceIds(instance_ids)
+        request.set_PageSize(100)
 
         try:
             response = self.client.do_action_with_exception(request)

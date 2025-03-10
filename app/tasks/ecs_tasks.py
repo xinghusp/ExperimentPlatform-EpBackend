@@ -188,6 +188,7 @@ def check_instance_status() -> Dict[str, Any]:
             })
 
         # 处理每个区域的实例
+
         for region_id, instances in region_instances.items():
             # 每组最多处理100个实例
             for i in range(0, len(instances), 100):
