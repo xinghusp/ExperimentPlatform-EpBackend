@@ -96,6 +96,7 @@ if __name__ == "__main__":
 
         worker_count = min(8, multiprocessing.cpu_count() * 2 + 1)
         print(f"启动 {worker_count} 个工作进程...")
+        multiprocessing.set_start_method("spawn")
 
         processes = []
         for _ in range(worker_count):
