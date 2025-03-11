@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.post("/admin/login", response_model=Token)
 def login_admin_access_token(form_data: AdminLogin, db: Session = Depends(get_db)
-):
+                             ):
     """
     管理员登录获取访问令牌
     """
@@ -31,11 +31,16 @@ def login_admin_access_token(form_data: AdminLogin, db: Session = Depends(get_db
         )
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": str(admin.id), "role": "admin"}
+
+    # 创建简化的载荷，不再嵌套JSON字符串
+    token_data = {
+        "sub": str(admin.id),  # sub字段直接是用户ID
+        "role": "admin"  # 角色信息
+    }
 
     return {
         "access_token": create_access_token(
-            payload, expires_delta=access_token_expires
+            token_data, expires_delta=access_token_expires
         ),
         "token_type": "bearer",
         "user_id": admin.id,
@@ -58,13 +63,18 @@ def login_student_access_token(student_login: StudentLogin, db: Session = Depend
             detail="学号或姓名错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": str(student.id), "role": "student"}
-    
+
+    # 创建简化的载荷，不再嵌套JSON字符串
+    token_data = {
+        "sub": str(student.id),  # sub字段直接是用户ID
+        "role": "student"  # 角色信息
+    }
+
     return {
         "access_token": create_access_token(
-            payload, expires_delta=access_token_expires
+            token_data, expires_delta=access_token_expires
         ),
         "token_type": "bearer",
         "user_id": student.id,
@@ -72,14 +82,3 @@ def login_student_access_token(student_login: StudentLogin, db: Session = Depend
         "name": student.name,
         "role": "student"
     }
-
-
-@router.post("/admin/register", response_model=Admin)
-def register_admin(
-    admin_in: AdminCreate, db: Session = Depends(get_db)
-):
-    """
-    管理员注册 (初始管理员创建时使用)
-    """
-    admin = crud_admin.create(db, obj_in=admin_in)
-    return admin
