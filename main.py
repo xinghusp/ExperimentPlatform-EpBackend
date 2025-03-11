@@ -72,7 +72,23 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,workers=32,
-        limit_concurrency=128,       # 限制每个worker的最大并发连接数
-        timeout_keep_alive=120,      # 增加保活超时
-        access_log=False)            # 减少日志开销)
+    # uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,workers=32,
+    #     limit_concurrency=128,       # 限制每个worker的最大并发连接数
+    #     timeout_keep_alive=120,      # 增加保活超时
+    #     access_log=False)            # 减少日志开销)
+    # 本地开发时使用此代码
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--multiprocess":
+        # 手动启动多进程模式 (本地测试多进程)
+        import multiprocessing
+
+        worker_count = min(8, multiprocessing.cpu_count() * 2 + 1)
+        print(f"启动 {worker_count} 个工作进程...")
+        # 多进程启动代码...
+    else:
+        # 单进程开发模式
+        print("以开发模式启动 (单进程，自动重载)...")
+        import uvicorn
+
+        uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
