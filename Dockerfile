@@ -18,6 +18,6 @@ COPY . .
 EXPOSE 8000
 
 # Command to run the application
-# CMD ["python", "main.py"]
+CMD ["python", "main.py","--multiprocess"]
 # 生产环境使用gunicorn启动多进程
-CMD ["gunicorn", "main:app", "-w", "12", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
+#CMD ["gunicorn", "main:app", "-w", "12", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]

@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from six import iteritems
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 import time
@@ -48,7 +49,7 @@ app.add_middleware(
 )
 
 # 添加性能跟踪中间件
-app.add_middleware(ProcessTimeMiddleware)
+# app.add_middleware(ProcessTimeMiddleware)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -71,6 +72,10 @@ logging.basicConfig(
     level=logging.WARNING,  # 设置日志输出等级为DEBUG
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+
+def start_worker():
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 if __name__ == "__main__":
     # uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,workers=32,
     #     limit_concurrency=128,       # 限制每个worker的最大并发连接数
@@ -86,6 +91,23 @@ if __name__ == "__main__":
         worker_count = min(8, multiprocessing.cpu_count() * 2 + 1)
         print(f"启动 {worker_count} 个工作进程...")
         # 多进程启动代码...
+        import multiprocessing
+        import uvicorn
+
+        worker_count = min(8, multiprocessing.cpu_count() * 2 + 1)
+        print(f"启动 {worker_count} 个工作进程...")
+
+        processes = []
+        for _ in range(worker_count):
+            p = multiprocessing.Process(target=start_worker)
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+
+
+
     else:
         # 单进程开发模式
         print("以开发模式启动 (单进程，自动重载)...")

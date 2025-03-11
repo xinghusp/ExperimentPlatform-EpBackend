@@ -29,32 +29,38 @@ def get_current_user(
     try:
         # 直接解码JWT
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-
+        print("payload:",payload)
         # 简化处理，直接从payload中获取信息
         user_id = payload.get("sub")
         if user_id is None:
+            print("user_id is None")
             raise credentials_exception
 
         role = payload.get("role")
         if role is None:
+            print("role is None")
             raise credentials_exception
 
         token_data = TokenData(sub=user_id, role=role)
     except JWTError:
+        print("JWTError")
         raise credentials_exception
 
     # 验证并获取用户
     if token_data.role == "admin":
         user = crud_admin.get(db, id=int(token_data.sub))
         if user is None:
+            print("user is None")
             raise credentials_exception
         return {"id": user.id, "username": user.username, "role": "admin"}
     elif token_data.role == "student":
         user = crud_student.get(db, id=int(token_data.sub))
         if user is None:
+            print("user is None")
             raise credentials_exception
         return {"id": user.id, "student_id": user.student_id, "name": user.name, "role": "student"}
     else:
+        print("role is invalid")
         raise credentials_exception
 
 
