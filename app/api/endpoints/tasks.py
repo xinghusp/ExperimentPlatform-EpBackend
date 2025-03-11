@@ -561,9 +561,13 @@ def generate_guacamole_token(
             detail="Task not found"
         )
 
+    token_data = {
+        "sub":  f"st_{student_task_id}",  # sub字段直接是用户ID
+        "role": "student"  # 角色信息
+    }
+
     # 生成临时令牌 (30分钟有效)
-    temp_token = create_access_token(
-        subject=f"st_{student_task_id}",
+    temp_token = create_access_token(token_data,
         expires_delta=datetime.timedelta(minutes=30)
     )
 

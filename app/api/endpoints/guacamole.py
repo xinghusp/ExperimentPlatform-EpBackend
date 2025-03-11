@@ -20,7 +20,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # 存储WebSocket连接
-# active_connections: Dict[int, WebSocket] = {}
+active_connections: Dict[int, WebSocket] = {}
 
 
 @router.get("/{student_task_id}", response_class=HTMLResponse)
@@ -28,26 +28,31 @@ async def guacamole_client(
         student_task_id: int,
         request: Request,
         db: Session = Depends(get_db),
-        current_user: dict = Depends(get_current_student)  # 使用通用的JWT认证依赖
+        token: str = Query(...)
 ):
     """
     获取Guacamole客户端HTML页面，使用模板文件
     """
-    # 验证学生是否有权限访问这个任务
+    try:
+        # 验证临时令牌
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms="HS256"
+        )
+        expected_sub = f"st_{student_task_id}"
+
+        if payload["sub"] != expected_sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token for this resource"
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
     student_task = crud_student_task.get(db=db, id=student_task_id)
-
-    if not student_task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
-
-    # 验证任务是否属于当前学生
-    if student_task.student_id != current_user["id"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问此任务"
-        )
 
     if not student_task.ecs_ip_address or student_task.ecs_instance_status != "Running":
         raise HTTPException(
@@ -75,8 +80,7 @@ async def guacamole_client(
             "request": request,
             "student_task_id": student_task_id,
             "has_time_limit": has_time_limit,
-            "remaining_time": remaining_time or 0,
-            "auth_token": request.headers.get("authorization", "").replace("Bearer ", "")  # 传递当前的认证令牌给客户端
+            "remaining_time": remaining_time or 0
         }
     )
 
