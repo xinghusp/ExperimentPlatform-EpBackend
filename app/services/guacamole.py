@@ -57,9 +57,9 @@ class GuacamoleService:
                 "width": width,
                 "height": height,
                 "dpi": dpi,
-                "image": ["image/jpeg","image/png"],
-                "audio": ["audio/ogg", "audio/mp3", "audio/aac"],
-                "video": ["video/h264", "video/webm"]
+                "image": ["image/png","image/jpeg"],
+                "audio": ["audio/ogg", "audio/mp3", "audio/aac"]
+                # "video": ["video/h264", "video/webm"]
 
             }
 

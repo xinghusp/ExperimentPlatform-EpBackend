@@ -37,8 +37,8 @@ def get_current_user(
 
         # Parse the nested JSON string
         #print("payload_data: ", payload_data)
-        print("payload_data: ", payload_data)
-        print("payload_data type: ", type(payload_data))
+        #print("payload_data: ", payload_data)
+        #print("payload_data type: ", type(payload_data))
         nested_payload = json.loads(payload_data.replace("'", '"'))
         user_id: str = nested_payload.get("sub")
         if user_id is None:
