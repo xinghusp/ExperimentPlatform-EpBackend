@@ -1,6 +1,17 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+# 导入所有模型，以便Alembic可以检测和生成迁移脚本
+
+from app.db.base_class import Base  # noqa
+from app.models.admin import Administrator  # noqa
+from app.models.class_ import Class  # noqa
+from app.models.student import Student  # noqa
+from app.models.task import Task, TaskAttachment, TaskAssignment, StudentTask, CeleryTaskLog  # noqa
+from app.models.environment import EnvironmentTemplate  # noqa
+from app.models.ecs import ECSInstance  # noqa
+from app.models.guacamole import GuacamoleConnection  # noqa
+from app.models.jupyter import JupyterContainer  # noqa
 
 from app.core.config import settings
 

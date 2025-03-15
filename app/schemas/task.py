@@ -1,146 +1,115 @@
-from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any, Union
+from typing import List, Optional
 from datetime import datetime
-import json
+from pydantic import BaseModel
 
-from app.schemas.class_ import Class
+
+class TaskBase(BaseModel):
+    """任务基础模型"""
+    title: str
+    description: Optional[str] = None
+    max_duration: Optional[int] = None  # 分钟
+    max_attempts: Optional[int] = 1
+    task_type: Optional[str] = "guacamole"  # 新增字段
+    environment_id: Optional[int] = None  # 新增字段
+
+
+class TaskCreate(TaskBase):
+    """创建任务的请求模型"""
+    class_ids: List[int]
+
+
+class TaskUpdate(TaskBase):
+    """更新任务的请求模型"""
+    title: Optional[str] = None
+    class_ids: Optional[List[int]] = None
+
+
+class TaskInDBBase(TaskBase):
+    """数据库中任务的基础模型"""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    created_by: int
+
+    class Config:
+        orm_mode = True
+
+
+class Task(TaskInDBBase):
+    """API响应中的任务模型"""
+    pass
+
+
+class TaskDetail(Task):
+    """任务详情模型，包含附件和班级信息"""
+    attachments: Optional[List] = []
+    classes: Optional[List] = []
+    environment: Optional[dict] = None  # 新增字段
 
 
 class TaskAttachmentBase(BaseModel):
+    """任务附件基础模型"""
     file_name: str
     file_path: str
     file_size: Optional[int] = None
     file_type: Optional[str] = None
 
 
+
+
 class TaskAttachmentCreate(TaskAttachmentBase):
+    """创建任务附件的请求模型"""
     pass
 
 
-class TaskAttachmentInDBBase(TaskAttachmentBase):
+class TaskAttachment(TaskAttachmentBase):
+    """API响应中的任务附件模型"""
     id: int
     task_id: int
     created_at: datetime
 
-    model_config = {
-        "from_attributes": True,  # 替代原来的 orm_mode = True
-    }
+    class Config:
+        orm_mode = True
+
+class TaskWithAttachments(TaskInDBBase):
+    """任务详情模型，包含附件（与原API兼容）"""
+    attachments: Optional[List[TaskAttachment]] = []
+    classes: Optional[List] = []
+
+class StudentTaskBase(BaseModel):
+    """学生任务基础模型"""
+    student_id: int
+    task_id: int
+    attempt_number: Optional[int] = 1
+    task_type: Optional[str] = "guacamole"  # 新增字段
+    status: Optional[str] = "pending"  # 新增字段
 
 
-class TaskAttachment(TaskAttachmentInDBBase):
+class StudentTaskCreate(StudentTaskBase):
+    """创建学生任务的请求模型"""
     pass
 
 
-class TaskBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    max_duration: Optional[int] = None
-    max_attempts: int
-    image_id: str
-    region_id: str
-    instance_type: str
-    security_group_id: str
-    vswitch_id: str
-    internet_max_bandwidth_out: int
-    spot_strategy: str
-    password: str
-    custom_params: Optional[Dict[str, Any]] = None
-
-
-class TaskCreate(TaskBase):
-    class_ids: List[int]
-
-
-class TaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    max_duration: Optional[int] = None
-    max_attempts: Optional[int] = None
-    image_id: Optional[str] = None
-    region_id: Optional[str] = None
-    instance_type: Optional[str] = None
-    security_group_id: Optional[str] = None
-    vswitch_id: Optional[str] = None
-    internet_max_bandwidth_out: Optional[int] = None
-    spot_strategy: Optional[str] = None
-    password: Optional[str] = None
-    custom_params: Optional[Dict[str, Any]] = None
-    class_ids: Optional[List[int]] = None
-
-
-class TaskInDBBase(TaskBase):
+class StudentTask(StudentTaskBase):
+    """API响应中的学生任务模型"""
     id: int
     created_at: datetime
-    updated_at: datetime
-    created_by: int
-
-    model_config = {
-        "from_attributes": True,  # 替代原来的 orm_mode = True
-    }
-
-
-class Task(BaseModel):
-    id: int
-    title: str
-    description: Optional[str] = None
-    max_duration: Optional[int] = None
-    max_attempts: int = 1
-    region_id: str
-    image_id: str
-    instance_type: str
-    security_group_id: str
-    vswitch_id: str
-    internet_max_bandwidth_out: int
-    spot_strategy: str
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    classes: List[Class] = []
-    password: str
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    last_heartbeat: Optional[datetime] = None
 
     class Config:
         orm_mode = True
 
 
-class TaskWithAttachments(Task):
-    attachments: List[TaskAttachment] = []
-
-
-class StudentTaskBase(BaseModel):
-    student_id: int
-    task_id: int
-    ecs_instance_id: Optional[str] = None
-    ecs_instance_status: Optional[str] = None
-    ecs_ip_address: Optional[str] = None
-    attempt_number: int = 1
-    start_at: Optional[datetime] = None
-    end_at: Optional[datetime] = None
-    auto_release_time: Optional[datetime] = None
-    last_heartbeat: Optional[datetime] = None
-
-
-class StudentTaskCreate(BaseModel):
-    task_id: int
-
-
-class StudentTaskInDBBase(StudentTaskBase):
-    id: int
-    created_at: datetime
-
-    model_config = {
-        "from_attributes": True,  # 替代原来的 orm_mode = True
-    }
-
-
-class StudentTask(StudentTaskInDBBase):
-    pass
-
-
 class StudentTaskDetail(StudentTask):
-    task: Task
-    remaining_time: Optional[int] = None  # 剩余时间（分钟）
+    """学生任务详情，包含任务信息和实例信息"""
+    task: Optional[Task] = None
+    instance_info: Optional[dict] = None  # 可以是ECS实例或Jupyter容器
 
 
 class CeleryTaskLogBase(BaseModel):
+    """Celery任务日志基础模型"""
     task_id: str
     task_name: str
     status: str
@@ -150,18 +119,15 @@ class CeleryTaskLogBase(BaseModel):
 
 
 class CeleryTaskLogCreate(CeleryTaskLogBase):
+    """创建Celery任务日志的请求模型"""
     pass
 
 
-class CeleryTaskLogInDBBase(CeleryTaskLogBase):
+class CeleryTaskLog(CeleryTaskLogBase):
+    """API响应中的Celery任务日志模型"""
     id: int
     created_at: datetime
     updated_at: datetime
 
-    model_config = {
-        "from_attributes": True,  # 替代原来的 orm_mode = True
-    }
-
-
-class CeleryTaskLog(CeleryTaskLogInDBBase):
-    pass
+    class Config:
+        orm_mode = True

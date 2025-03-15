@@ -15,35 +15,42 @@ from app.core.security import create_access_token
 from app.models.class_ import Class
 from app.models.student import Student
 from app.schemas.class_ import ClassInDBBase
-from app.schemas.task import TaskCreate, TaskUpdate, Task, TaskWithAttachments, TaskAttachmentCreate, StudentTaskCreate, StudentTask
+from app.schemas.task import TaskCreate, TaskUpdate, Task, TaskWithAttachments, TaskAttachmentCreate, StudentTaskCreate, \
+    StudentTask
 from app.crud.task import task as crud_task
 from app.crud.task import student_task as crud_student_task
+from app.crud.environment import environment_template
 from app.tasks.ecs_tasks import create_ecs_instance, delete_instance
-from app.models.task import Task as TaskDb, TaskAttachment as TaskAttachmentDb, StudentTask as StudentTaskDb, TaskAssignment as TaskAssDb
+from app.models.task import Task as TaskDb, TaskAttachment as TaskAttachmentDb, StudentTask as StudentTaskDb, \
+    TaskAssignment as TaskAssDb
 from app.models.class_ import Class as ClassDb
 from app.models.student import Student as StudentDb
+from app.schemas.ecs import ECSInstance
+
 router = APIRouter()
 
 
 @router.post("/", response_model=Task)
 async def create_task(
-    title: str = Form(...),
-    description: str = Form(None),
-    max_duration: int = Form(None),
-    max_attempts: int = Form(...),
-    image_id: str = Form(...),
-    region_id: str = Form(...),
-    instance_type: str = Form(...),
-    security_group_id: str = Form(...),
-    vswitch_id: str = Form(...),
-    internet_max_bandwidth_out: int = Form(...),
-    spot_strategy: str = Form(...),
-    password: str = Form(...),
-    custom_params: str = Form(None),
-    class_ids: str = Form(...),
-    files: List[UploadFile] = File(None),
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
+        title: str = Form(...),
+        description: str = Form(None),
+        max_duration: int = Form(None),
+        max_attempts: int = Form(...),
+        image_id: str = Form(...),
+        region_id: str = Form(...),
+        instance_type: str = Form(...),
+        security_group_id: str = Form(...),
+        vswitch_id: str = Form(...),
+        internet_max_bandwidth_out: int = Form(...),
+        spot_strategy: str = Form(...),
+        password: str = Form(...),
+        custom_params: str = Form(None),
+        class_ids: str = Form(...),
+        task_type: str = Form("guacamole"),  # 新增: 默认为guacamole类型
+        environment_id: int = Form(None),  # 新增: 环境模板ID (可选)
+        files: List[UploadFile] = File(None),
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin)
 ):
     """
     创建任务
@@ -54,36 +61,57 @@ async def create_task(
         "description": description,
         "max_duration": max_duration,
         "max_attempts": max_attempts,
-        "image_id": image_id,
-        "region_id": region_id,
-        "instance_type": instance_type,
-        "security_group_id": security_group_id,
-        "vswitch_id": vswitch_id,
-        "internet_max_bandwidth_out": internet_max_bandwidth_out,
-        "spot_strategy": spot_strategy,
-        "password": password,
-        "custom_params": json.loads(custom_params) if custom_params else None,
-        "class_ids": json.loads(class_ids)
+        "class_ids": json.loads(class_ids),
+        "task_type": task_type,  # 新增
+        "environment_id": environment_id  # 新增
     }
-    
+
+    # 如果没有指定环境模板，则自动创建一个
+    if not environment_id and task_type == "guacamole":
+        # 创建环境模板
+        resource_config = {
+            "instance_type": instance_type,
+            "region_id": region_id,
+            "security_group_id": security_group_id,
+            "vswitch_id": vswitch_id,
+            "bandwidth": internet_max_bandwidth_out,
+            "spot_strategy": spot_strategy,
+            "password": password,
+            "custom_params": json.loads(custom_params) if custom_params else None
+        }
+
+        # 创建环境模板
+        env_template = environment_template.create_with_admin(
+            db=db,
+            obj_in={"name": f"Auto-created for task: {title}",
+                    "description": f"Automatically created environment template for task: {title}",
+                    "type": "guacamole",
+                    "image": image_id,
+                    "resource_config": resource_config},
+            admin_id=current_admin["id"]
+        )
+
+        # 将环境模板ID添加到任务数据
+        task_data["environment_id"] = env_template.id
+
     # 创建任务
     task_in = TaskCreate(**task_data)
     task_obj = crud_task.create_with_admin(db=db, obj_in=task_in, admin_id=current_admin["id"])
-    
+
     # 处理上传的附件
     if files:
         upload_dir = os.path.join(settings.UPLOAD_FOLDER, f"task_{task_obj.id}")
         os.makedirs(upload_dir, exist_ok=True)
-        
+
         for file in files:
             if not file.filename:
                 continue
-                
+
             file_path = os.path.join(upload_dir, file.filename)
-            
+
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-            
+
             # 创建附件记录
             attachment_in = TaskAttachmentCreate(
                 file_name=file.filename,
@@ -92,7 +120,7 @@ async def create_task(
                 file_type=file.content_type
             )
             crud_task.create_attachment(db=db, obj_in=attachment_in, task_id=task_obj.id)
-    
+
     return task_obj
 
 
@@ -116,23 +144,40 @@ def read_tasks(
     # 构建带有班级信息的任务列表
     result = []
     for task in tasks:
+        # 基本任务信息
         task_dict = {
             "id": task.id,
             "title": task.title,
             "description": task.description,
             "max_duration": task.max_duration,
             "max_attempts": task.max_attempts,
-            "region_id": task.region_id,
-            "image_id": task.image_id,
-            "instance_type": task.instance_type,
-            "security_group_id": task.security_group_id,
-            "vswitch_id": task.vswitch_id,
-            "internet_max_bandwidth_out": task.internet_max_bandwidth_out,
-            "spot_strategy": task.spot_strategy,
             "created_at": task.created_at,
             "updated_at": task.updated_at,
+            "task_type": task.task_type,  # 新增字段
+            "environment_id": task.environment_id,  # 新增字段
             "classes": []
         }
+
+        # 获取环境信息
+        if task.environment_id:
+            env = environment_template.get(db, id=task.environment_id)
+            if env:
+                task_dict["environment"] = {
+                    "id": env.id,
+                    "name": env.name,
+                    "type": env.type,
+                    "image": env.image,
+                }
+
+                # 针对guacamole类型，保留旧字段以兼容
+                if env.type == "guacamole" and env.resource_config:
+                    task_dict["instance_type"] = env.resource_config.get("instance_type")
+                    task_dict["region_id"] = env.resource_config.get("region_id")
+                    task_dict["image_id"] = env.image
+                    task_dict["security_group_id"] = env.resource_config.get("security_group_id")
+                    task_dict["vswitch_id"] = env.resource_config.get("vswitch_id")
+                    task_dict["internet_max_bandwidth_out"] = env.resource_config.get("bandwidth")
+                    task_dict["spot_strategy"] = env.resource_config.get("spot_strategy")
 
         # 查询关联的班级信息
         class_tasks = db.query(TaskAssDb).filter(TaskAssDb.task_id == task.id).all()
@@ -149,9 +194,9 @@ def read_tasks(
 
 @router.get("/{task_id}", response_model=TaskWithAttachments)
 def read_task(
-    task_id: int,
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
+        task_id: int,
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin)
 ):
     """
     获取任务详情
@@ -167,10 +212,10 @@ def read_task(
 
 @router.put("/{task_id}", response_model=Task)
 def update_task(
-    task_id: int,
-    task_in: TaskUpdate,
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
+        task_id: int,
+        task_in: TaskUpdate,
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin)
 ):
     """
     更新任务
@@ -181,19 +226,28 @@ def update_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在"
         )
-    
+
     # 更新任务分配
     if task_in.class_ids is not None:
         crud_task.update_assignment(db=db, task_id=task_id, class_ids=task_in.class_ids)
-    
+
+    # 检查环境模板
+    if task_in.environment_id and task_in.task_type:
+        env = environment_template.get(db, id=task_in.environment_id)
+        if not env:
+            raise HTTPException(status_code=404, detail="Environment template not found")
+        if env.type != task_in.task_type:
+            raise HTTPException(status_code=400,
+                                detail=f"Environment type ({env.type}) does not match task type ({task_in.task_type})")
+
     return crud_task.update(db=db, db_obj=task, obj_in=task_in)
 
 
 @router.delete("/{task_id}", response_model=Task)
 def delete_task(
-    task_id: int,
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
+        task_id: int,
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin)
 ):
     """
     删除任务
@@ -204,15 +258,16 @@ def delete_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在"
         )
-    
+
     # 删除任务附件文件
     upload_dir = os.path.join(settings.UPLOAD_FOLDER, f"task_{task_id}")
     if os.path.exists(upload_dir):
         shutil.rmtree(upload_dir)
-    
+
     return crud_task.remove(db=db, id=task_id)
 
 
+# 下面的代码是为了向后兼容，未来应迁移到student_tasks.py
 @router.get("/student/list", response_model=List[Dict[str, Any]])
 def list_student_tasks(
         db: Session = Depends(get_db),
@@ -220,6 +275,7 @@ def list_student_tasks(
 ):
     """
     获取学生的任务列表，包括进行中的任务状态
+    此端点保留以向后兼容，但建议使用新的/student/tasks端点
     """
     # 获取分配给学生所在班级的所有任务
     tasks = db.query(TaskDb).join(TaskAssDb).join(ClassDb).join(Student).filter(
@@ -244,6 +300,7 @@ def list_student_tasks(
             "max_duration": task.max_duration,
             "max_attempts": task.max_attempts,
             "created_at": task.created_at,
+            "task_type": task.task_type,  # 新增
             "status": "Not Started"
         }
 
@@ -253,18 +310,21 @@ def list_student_tasks(
             task_data["student_task_id"] = latest_student_task.id
 
             # 设置状态
+            task_data["status"] = latest_student_task.status  # 使用统一的状态字段
+
             if latest_student_task.end_at:
-                task_data["status"] = "已完成"
                 task_data["end_at"] = latest_student_task.end_at
-            elif latest_student_task.ecs_instance_status in ["Preparing", "Starting"]:
-                task_data["status"] = latest_student_task.ecs_instance_status
-            elif latest_student_task.ecs_instance_status == "Running":
-                task_data["status"] = "进行中"
-                task_data["public_ip"] = latest_student_task.ecs_ip_address
-                task_data["start_at"] = latest_student_task.start_at
-                task_data["attempt_number"] = latest_student_task.attempt_number
-            else:
-                task_data["status"] = "未开始"
+
+            if latest_student_task.task_type == "guacamole":
+                # 对于ECS实例，查找IP
+                ecs = db.query(ECSInstance).filter(
+                    ECSInstance.student_task_id == latest_student_task.id
+                ).first()
+                if ecs and ecs.public_ip:
+                    task_data["public_ip"] = ecs.public_ip
+
+            task_data["start_at"] = latest_student_task.start_at
+            task_data["attempt_number"] = latest_student_task.attempt_number
 
             # 添加剩余尝试次数信息
             task_data["remaining_attempts"] = task.max_attempts - \
@@ -277,7 +337,6 @@ def list_student_tasks(
 
         result.append(task_data)
 
-
     return result
 
 
@@ -289,6 +348,7 @@ def get_student_task_status(
 ):
     """
     获取学生任务的当前状态
+    此端点保留以向后兼容，但建议使用新的/student/{student_task_id}端点
     """
     # 查询学生任务
     student_task = db.query(StudentTaskDb).filter(
@@ -302,25 +362,38 @@ def get_student_task_status(
             detail="没有找到任务"
         )
 
-    # 返回状态信息
-    return {
+    # 构建响应
+    response = {
         "id": student_task.id,
-        "ecs_instance_status": student_task.ecs_instance_status,
-        "ecs_instance_id": student_task.ecs_instance_id,
-        "ecs_ip_address": student_task.ecs_ip_address,
+        "status": student_task.status,
         "start_at": student_task.start_at,
         "end_at": student_task.end_at
     }
 
+    # 针对不同环境类型获取额外信息
+    if student_task.task_type == "guacamole":
+        # 获取ECS实例信息
+        ecs = db.query(ECSInstance).filter(
+            ECSInstance.student_task_id == student_task.id
+        ).first()
+        if ecs:
+            response["ecs_instance_id"] = ecs.instance_id
+            response["ecs_instance_status"] = ecs.status
+            response["ecs_ip_address"] = ecs.public_ip
+
+    return response
+
+
 @router.post("/student/start", response_model=Dict)
 def start_task(
-    task_in: StudentTaskCreate,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_student: dict = Depends(get_current_student)
+        task_in: StudentTaskCreate,
+        background_tasks: BackgroundTasks,
+        db: Session = Depends(get_db),
+        current_student: dict = Depends(get_current_student)
 ):
     """
     学生开始执行任务
+    此端点保留以向后兼容，但建议使用新的/student/start-experiment/{task_id}端点
     """
     # 获取任务信息
     task = crud_task.get(db=db, id=task_in.task_id)
@@ -329,7 +402,7 @@ def start_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在"
         )
-    
+
     # 检查该学生是否有权限执行该任务
     student_tasks = crud_task.get_tasks_for_student(db=db, student_id=current_student["id"])
     if not any(t["id"] == task_in.task_id for t in student_tasks):
@@ -337,46 +410,57 @@ def start_task(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="您没有权限执行该任务"
         )
-    
+
     # 获取学生该任务的最新执行记录
     latest_task = crud_student_task.get_latest_for_student_task(
         db=db, student_id=current_student["id"], task_id=task_in.task_id
     )
-    
+
     # 处理不同情况
     if not latest_task:
         # 首次执行任务
         student_task_obj = crud_student_task.create_student_task(
-            db=db, student_id=current_student["id"], task_id=task_in.task_id
+            db=db, student_id=current_student["id"], task_id=task_in.task_id, task_type=task.task_type
         )
-    elif latest_task.ecs_instance_status in ["Stopped", "Error"]:
+    elif latest_task.status in ["stopped", "completed", "failed"]:
         # 之前的实例已结束，检查是否超过最大尝试次数
         if latest_task.attempt_number >= task.max_attempts:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"您已达到该任务的最大尝试次数 ({task.max_attempts})"
             )
-        
+
         # 创建新的实验记录，尝试次数+1
         student_task_obj = crud_student_task.create_student_task(
-            db=db, 
-            student_id=current_student["id"], 
+            db=db,
+            student_id=current_student["id"],
             task_id=task_in.task_id,
+            task_type=task.task_type,
             attempt_number=latest_task.attempt_number + 1
         )
     else:
         # 当前有正在运行的实例
+        # 针对guacamole类型，查询IP地址
+        ip_address = None
+        if latest_task.task_type == "guacamole":
+            ecs = db.query(ECSInstance).filter(
+                ECSInstance.student_task_id == latest_task.id
+            ).first()
+            if ecs:
+                ip_address = ecs.public_ip
+
         return {
-            "status": "running",
             "message": "该任务已经在运行中",
             "student_task_id": latest_task.id,
-            "ecs_instance_status": latest_task.ecs_instance_status,
-            "ecs_ip_address": latest_task.ecs_ip_address
+            "status": latest_task.status,
+            "ecs_ip_address": ip_address
         }
-    
-    # 创建ECS实例
-    background_tasks.add_task(create_ecs_instance, student_task_obj.id, task_in.task_id)
-    
+
+    # 处理不同类型的环境启动
+    if task.task_type == "guacamole":
+        # 创建ECS实例
+        background_tasks.add_task(create_ecs_instance, student_task_obj.id, task_in.task_id)
+
     return {
         "status": "preparing",
         "message": "正在准备实验环境，请稍候...",
@@ -386,12 +470,13 @@ def start_task(
 
 @router.get("/student/{student_task_id}/status", response_model=Dict)
 def check_task_status(
-    student_task_id: int,
-    db: Session = Depends(get_db),
-    current_student: dict = Depends(get_current_student)
+        student_task_id: int,
+        db: Session = Depends(get_db),
+        current_student: dict = Depends(get_current_student)
 ):
     """
     检查任务状态
+    此端点保留以向后兼容，但建议使用新的/student/{student_task_id}端点
     """
     student_task = crud_student_task.get(db=db, id=student_task_id)
     if not student_task or student_task.student_id != current_student["id"]:
@@ -399,176 +484,33 @@ def check_task_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在"
         )
-    
+
     # 获取任务信息
     task = crud_task.get(db=db, id=student_task.task_id)
-    
+
     # 计算剩余时间
     remaining_minutes = None
     if task.max_duration and student_task.start_at:
         elapsed_seconds = (datetime.datetime.now() - student_task.start_at).total_seconds()
         remaining_seconds = max(0, task.max_duration * 60 - elapsed_seconds)
         remaining_minutes = int(remaining_seconds / 60)
-    
-    return {
-        "status": student_task.ecs_instance_status,
-        "ecs_ip_address": student_task.ecs_ip_address,
+
+    # 构建响应
+    response = {
+        "status": student_task.status,
         "attempt_number": student_task.attempt_number,
         "max_attempts": task.max_attempts if task else None,
         "remaining_time": remaining_minutes,
         "has_time_limit": task.max_duration is not None if task else False
     }
 
+    # 针对不同类型环境添加特定信息
+    if student_task.task_type == "guacamole":
+        ecs = db.query(ECSInstance).filter(
+            ECSInstance.student_task_id == student_task.id
+        ).first()
+        if ecs:
+            response["ecs_instance_status"] = ecs.status
+            response["ecs_ip_address"] = ecs.public_ip
 
-@router.post("/student/{student_task_id}/heartbeat", response_model=Dict)
-def update_heartbeat(
-    student_task_id: int,
-    db: Session = Depends(get_db),
-    current_student: dict = Depends(get_current_student)
-):
-    """
-    更新任务心跳
-    """
-    student_task = crud_student_task.get(db=db, id=student_task_id)
-    if not student_task or student_task.student_id != current_student["id"]:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
-    
-    if student_task.ecs_instance_status in ["Stopped", "Error"]:
-        return {
-            "status": "stopped",
-            "message": "实验已结束"
-        }
-    
-    # 更新心跳时间
-    updated = crud_student_task.update_heartbeat(db=db, student_task_id=student_task_id)
-    
-    return {
-        "status": "ok",
-        "last_heartbeat": updated.last_heartbeat
-    }
-
-
-@router.post("/student/{student_task_id}/end", response_model=Dict)
-def end_student_task(
-    student_task_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_student: dict = Depends(get_current_student)
-):
-    """
-    学生结束任务
-    """
-    student_task = crud_student_task.get(db=db, id=student_task_id)
-    if not student_task or student_task.student_id != current_student["id"]:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
-    
-    if student_task.ecs_instance_status in ["Stopped", "Error"]:
-        return {
-            "status": "stopped",
-            "message": "实验已结束"
-        }
-    
-    # 更新任务状态
-    crud_student_task.end_experiment(db=db, student_task_id=student_task_id)
-    
-    # 删除ECS实例
-    background_tasks.add_task(delete_instance, student_task_id, student_task.task_id)
-    
-    return {
-        "status": "stopping",
-        "message": "实验正在结束，资源将被释放"
-    }
-
-
-@router.get("/admin/student_tasks", response_model=List[StudentTask])
-def list_all_student_tasks(
-    skip: int = 0,
-    limit: int = 100,
-    status: str = None,
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
-):
-    """
-    管理员获取所有学生任务执行记录
-    """
-    query = db.query(StudentTaskDb)
-    
-    if status:
-        query = query.filter(StudentTaskDb.ecs_instance_status == status)
-    
-    return query.offset(skip).limit(limit).all()
-
-
-@router.post("/admin/student_tasks/{student_task_id}/force_end", response_model=Dict)
-def force_end_task(
-    student_task_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_admin: dict = Depends(get_current_admin)
-):
-    """
-    管理员强制结束任务
-    """
-    student_task = crud_student_task.get(db=db, id=student_task_id)
-    if not student_task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
-    
-    if student_task.ecs_instance_status in ["Stopped", "Error"]:
-        return {
-            "status": "already_stopped",
-            "message": "该任务已经结束"
-        }
-    
-    # 更新任务状态
-    crud_student_task.end_experiment(db=db, student_task_id=student_task_id)
-    
-    # 删除ECS实例
-    background_tasks.add_task(delete_instance, student_task_id, student_task.task_id)
-    
-    return {
-        "status": "stopping",
-        "message": "实验正在被强制结束"
-    }
-
-
-@router.get("/student/{student_task_id}/guacamole-token", response_model=Dict[str, str])
-def generate_guacamole_token(
-        student_task_id: int,
-        db: Session = Depends(get_db),
-        current_student: Student = Depends(get_current_student)
-):
-    """
-    生成临时的Guacamole访问令牌
-    """
-    # 验证学生任务存在且属于当前学生
-    student_task = db.query(StudentTaskDb).filter(
-        StudentTaskDb.id == student_task_id,
-        StudentTaskDb.student_id == current_student["id"]
-    ).first()
-
-    if not student_task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Task not found"
-        )
-
-    token_data = {
-        "sub":  f"st_{student_task_id}",  # sub字段直接是用户ID
-        "role": "student"  # 角色信息
-    }
-
-    # 生成临时令牌 (30分钟有效)
-    temp_token = create_access_token(token_data,
-        expires_delta=datetime.timedelta(minutes=30)
-    )
-
-    return {"token": temp_token}
+    return response
