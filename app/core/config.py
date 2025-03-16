@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     DOCKER_TLS_VERIFY: bool = False
     DOCKER_CERT_PATH: Optional[str] = None
 
-    print(GUACAMOLE_HOST)
+    JUPYTER_COOKIE_DOMAIN: str ="localhost"
 
     def __init__(self, **data: Any):
         super().__init__(**data)

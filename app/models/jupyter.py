@@ -19,6 +19,7 @@ class JupyterContainer(Base):
     allow_restart = Column(Boolean, default=True)
     last_active = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+    nginx_token = Column(String(32))
 
     # 关系
     student_task = relationship("StudentTask", back_populates="jupyter_container")

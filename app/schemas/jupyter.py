@@ -11,6 +11,7 @@ class JupyterContainerBase(BaseModel):
     port: Optional[int] = None
     status: Optional[str] = "pending"
     allow_restart: Optional[bool] = True
+    nginx_token: Optional[str] = None
 
 
 class JupyterContainerCreate(JupyterContainerBase):
@@ -58,3 +59,4 @@ class JupyterAccessInfo(BaseModel):
     """提供给前端的Jupyter访问信息"""
     url: str
     token: str
+    port: Optional[str] = None

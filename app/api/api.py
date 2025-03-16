@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from app.api.endpoints import (
     auth, classes, tasks, student_tasks, environment,
-    ecs, guacamole, jupyter, admin
+    ecs, guacamole, jupyter, admin, nginx_auth
 )
 
 api_router = APIRouter()
@@ -25,3 +25,5 @@ api_router.include_router(environment.router, prefix="/environments", tags=["env
 api_router.include_router(ecs.router, prefix="/ecs", tags=["ecs"])
 api_router.include_router(guacamole.router, prefix="/guacamole", tags=["guacamole"])
 api_router.include_router(jupyter.router, prefix="/jupyter", tags=["jupyter"])
+
+api_router.include_router(nginx_auth.router, prefix="/nginx_auth", tags=["nginx_auth"])

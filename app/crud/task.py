@@ -176,7 +176,7 @@ class CRUDStudentTask(CRUDBase[StudentTask, StudentTaskCreate, StudentTaskCreate
             return None
 
         student_task.end_at = datetime.datetime.now()
-        student_task.status = "completed"
+        student_task.status = "Stopped"
         db.add(student_task)
         db.commit()
         db.refresh(student_task)

@@ -72,7 +72,9 @@ def create_container(
         memory: str = "1g",
         cpu: str = "1",
         memory_limit: str = "2g",
-        cpu_limit: str = "2"
+        cpu_limit: str = "2",
+        ports: Dict[str, Optional[str]] = None,
+        start_cmd: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     创建并启动Docker容器
@@ -91,12 +93,10 @@ def create_container(
             image=image,
             name=container_name,
             detach=True,
-            environment={
-                "JUPYTER_TOKEN": "none"  # 禁用Jupyter自己的token认证
-            },
             mem_limit=mem_limit,
             nano_cpus=int(float(cpu_limit) * 1e9),  # Convert CPU cores to nano CPUs
-            ports={'8888/tcp': None},  # 自动分配端口
+            ports=ports,
+            command=start_cmd,
             restart_policy={"Name": "on-failure", "MaximumRetryCount": 3}
         )
 
@@ -119,7 +119,7 @@ def create_container(
             "name": container.name,
             "host": host_ip,
             "port": int(host_port),
-            "url": f"http://{host_ip}:{host_port}",
+            #"url": f"http://{host_ip}:{host_port}",
             "status": "running"
         }
 

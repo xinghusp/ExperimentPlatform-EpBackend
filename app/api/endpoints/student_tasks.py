@@ -6,6 +6,7 @@ from starlette import status
 
 from app import schemas
 from app.api import deps
+from app.core.config import settings
 from app.core.security import create_access_token
 from app.services import ecs_service, jupyter_service
 from app.crud.task import student_task
@@ -16,7 +17,7 @@ from app.crud.jupyter import jupyter_container
 from app.crud.environment import environment_template
 from app.services.ali_cloud import ali_cloud_service
 from app.services.guacamole import guacamole_service
-
+from fastapi import Response
 router = APIRouter()
 
 
@@ -116,7 +117,7 @@ async def stop_experiment(
         jupyter = jupyter_container.get_by_student_task_id(db, student_task_id=student_task_id)
         if jupyter and jupyter.container_id:
             await jupyter_service.stop_container(jupyter.container_id)
-            jupyter_container.update_status(db, id=jupyter.id, status="stopped")
+            jupyter_container.update_status(db, id=jupyter.id, status="Stopped")
 
     # 结束学生任务
     student_task.end_experiment(db, student_task_id=student_task_id)
@@ -189,7 +190,7 @@ def generate_guacamole_token(
     # 验证学生任务存在且属于当前学生
     student_task_obj = student_task.get(db, id=student_task_id)
 
-    if not student_task:
+    if not student_task_obj:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found"
@@ -206,6 +207,55 @@ def generate_guacamole_token(
     )
 
     return {"token": temp_token}
+
+@router.get("/{student_task_id}/jupyter-token", response_model=schemas.JupyterAccessInfo)
+async def get_jupyter_access_info(
+        *,
+        db: Session = Depends(deps.get_db),
+        current_student: dict = Depends(deps.get_current_student),
+        student_task_id: int,
+        response: Response
+):
+    """获取Jupyter访问信息"""
+    # 获取容器信息
+    container = jupyter_container.get_by_student_task_id(db=db,student_task_id=student_task_id)
+    if not container:
+        raise HTTPException(status_code=404, detail="Jupyter container not found")
+
+    # 检查学生是否有权限访问该容器
+    student_task_model = container.student_task
+    if student_task_model.student_id != current_student["id"]:
+        raise HTTPException(status_code=403, detail="You don't have permission to access this container")
+
+    # 检查容器状态
+    if container.status != "Running":
+        raise HTTPException(status_code=400, detail=f"Container is not running (status: {container.status})")
+
+    if not container.nginx_token or container.nginx_token.strip()=='':
+        raise HTTPException(status_code=400, detail="Jupyter has not ready for nginx accessing")
+
+    # 更新容器最后活动时间
+    jupyter_container.update_last_active(db=db, id=container.container_id)
+
+
+    # 设置Cookie（用于Nginx代理认证）
+
+    response.set_cookie(
+        key="jupyter_token",
+        value=container.nginx_token,
+        domain=settings.JUPYTER_COOKIE_DOMAIN,
+        path="/",
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=1800
+    )
+
+    return schemas.JupyterAccessInfo(
+        url=f"http://{settings.JUPYTER_COOKIE_DOMAIN}",
+        port=str(container.port),
+        token=container.nginx_token
+    )
 
 # 辅助函数: 启动ECS实例
 async def start_ecs_instance(db: Session, task_data, student_task_id: int):
