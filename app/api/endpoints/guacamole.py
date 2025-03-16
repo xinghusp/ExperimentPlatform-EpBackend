@@ -12,9 +12,11 @@ from app.core.config import settings
 from app.core.templates import templates
 from app.schemas.task import StudentTask
 from app.crud.task import student_task as crud_student_task
+from app.services import ecs_service
 from app.services.guacamole import guacamole_service
 from app.models.task import Task
 from app.models.task import StudentTask as StudentTaskDb, Task as TaskDb
+from app.crud.ecs import ecs_instance as crud_ecs_instance
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -52,15 +54,19 @@ async def guacamole_client(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
         )
-    student_task = crud_student_task.get(db=db, id=student_task_id)
+    # student_task = crud_student_task.get(db=db, id=student_task_id)
+    ecs_instance = crud_ecs_instance.get_by_student_task_id(db=db, student_task_id=student_task_id)
 
-    if not student_task.ecs_ip_address or student_task.ecs_instance_status != "Running":
+
+    if not ecs_instance.private_ip or ecs_instance.status != "Running":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="实例还未准备好或已停止运行"
         )
 
     # 获取任务信息
+    student_task = db.query(StudentTaskDb).get(student_task_id)
+
     task = db.query(Task).filter(Task.id == student_task.task_id).first()
 
     # 计算剩余时间（如果有）
@@ -105,26 +111,28 @@ async def guacamole_ws(websocket: WebSocket, student_task_id: int, width=1280,he
 
     try:
         # 获取学生任务信息
-        student_task = db.query(StudentTaskDb).filter_by(id=student_task_id).first()
-        if not student_task or not student_task.ecs_ip_address:
+        #student_task = db.query(EC).filter_by(id=student_task_id).first()
+        ecs_instance = crud_ecs_instance.get_by_student_task_id(db=db, student_task_id=student_task_id)
+        if not ecs_instance or not ecs_instance.private_ip:
             await websocket.close(code=1008, reason="任务不存在或实例未准备好")
             return
 
         # 获取任务信息
-        task = db.query(TaskDb).filter(TaskDb.id == student_task.task_id).first()
-        if not task:
-            await websocket.close(code=1008, reason="任务信息不存在")
-            return
+        #student_task = db.query(StudentTaskDb).get(student_task_id)
+        #task = db.query(TaskDb).filter(TaskDb.id == student_task.task_id).first()
+        # if not task:
+        #     await websocket.close(code=1008, reason="任务信息不存在")
+        #     return
 
-        logger.info(f"创建RDP连接到 {student_task.ecs_ip_address}:3389")
+        logger.info(f"创建RDP连接到 {ecs_instance.private_ip}:3389")
 
         # 创建与Guacamole服务器的连接
         tunnel_result = await guacamole_service.create_tunnel(
             protocol="rdp",
-            hostname=student_task.ecs_ip_address,
+            hostname=ecs_instance.private_ip,
             port=3389,
             username="Administrator",
-            password=task.password,
+            password=ecs_instance.password,
             width=int(float(width)),
             height=int(float(height)),
             dpi=96,

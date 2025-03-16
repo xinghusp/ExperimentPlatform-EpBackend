@@ -1,9 +1,12 @@
+import datetime
 from typing import Dict, List, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from starlette import status
 
 from app import schemas
 from app.api import deps
+from app.core.security import create_access_token
 from app.services import ecs_service, jupyter_service
 from app.crud.task import student_task
 from app.crud.task import task
@@ -106,7 +109,7 @@ async def stop_experiment(
         ecs = ecs_instance.get_by_student_task_id(db, student_task_id=student_task_id)
         if ecs and ecs.instance_id:
             await ecs_service.stop_instance(ecs.instance_id)
-            ecs_instance.update_status(db, id=ecs.id, status="Stopped")
+            #ecs_instance.update_status(db, instance_id=ecs.instance_id, status="Stopped")
 
     elif student_task_obj.task_type == "jupyter":
         # 停止Jupyter容器
@@ -174,6 +177,35 @@ def get_student_task_detail(
 
     return result
 
+@router.get("/{student_task_id}/guacamole-token", response_model=Dict[str, str])
+def generate_guacamole_token(
+        student_task_id: int,
+        db: Session = Depends(deps.get_db),
+        current_student: Dict = Depends(deps.get_current_student)
+):
+    """
+    生成临时的Guacamole访问令牌
+    """
+    # 验证学生任务存在且属于当前学生
+    student_task_obj = student_task.get(db, id=student_task_id)
+
+    if not student_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    token_data = {
+        "sub":  f"st_{student_task_id}",
+        "role": "student"  # 角色信息
+    }
+
+    # 生成临时令牌 (30分钟有效)
+    temp_token = create_access_token(token_data,
+        expires_delta=datetime.timedelta(minutes=30)
+    )
+
+    return {"token": temp_token}
 
 # 辅助函数: 启动ECS实例
 async def start_ecs_instance(db: Session, task_data, student_task_id: int):
@@ -182,11 +214,9 @@ async def start_ecs_instance(db: Session, task_data, student_task_id: int):
     env = environment_template.get(db, id=task_data.environment_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment template not found")
-
+    print("config:",env.resource_config)
     # 创建ECS实例
     instance_result = await ecs_service.create_instance(
-        image_id=env.image,
-        resource_config=env.resource_config,
         task_id=task_data.id,
         student_task_id=student_task_id
     )
@@ -196,16 +226,16 @@ async def start_ecs_instance(db: Session, task_data, student_task_id: int):
         db,
         obj_in=schemas.ECSInstanceCreate(
             student_task_id=student_task_id,
-            instance_id=instance_result["instance_id"],
+            instance_id=None,
             instance_name=instance_result["instance_name"],
             image_id=env.image,
-            instance_type=instance_result.get("instance_type"),
+            instance_type=env.resource_config.get("instance_type","cn-hangzhou"),
             status="Creating",
-            region_id=instance_result.get("region_id"),
-            security_group_id=env.resource_config.get("security_group_id"),
-            vswitch_id=env.resource_config.get("vswitch_id"),
-            spot_strategy=env.resource_config.get("spot_strategy"),
-            password=instance_result.get("password")
+            region_id=env.resource_config.get("region_id", None),
+            security_group_id=env.resource_config.get("security_group_id", None),
+            vswitch_id=env.resource_config.get("vswitch_id", None),
+            spot_strategy=env.resource_config.get("spot_strategy", None),
+            password=env.resource_config.get("password")
         )
     )
 
@@ -214,7 +244,9 @@ async def start_ecs_instance(db: Session, task_data, student_task_id: int):
 
     return {
         "message": "ECS instance creation started",
-        "instance_id": instance_result["instance_id"]
+        "instance_id": None,
+        "instance_name": instance_result["instance_name"]
+
     }
 
 
@@ -240,7 +272,7 @@ async def start_jupyter_container(db: Session, task_data, student_task_id: int):
     student_task.update_status(db, student_task_id=student_task_id, status="creating")
 
     # 启动容器（异步任务）
-    jupyter_service.create_container_task.delay(container.id, env.image, env.resource_config)
+    await jupyter_service.create_container(container.id, env.image, env.resource_config)
 
     return {
         "message": "Jupyter container creation started",

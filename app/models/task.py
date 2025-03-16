@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.db.base import Base
-
+from app.models.admin import Administrator
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -20,11 +20,12 @@ class Task(Base):
     environment_id = Column(BigInteger, ForeignKey("environment_templates.id"))
 
     # 关系
-    admin = relationship("Administrator")
+    admin = relationship("Administrator", back_populates="tasks")
     attachments = relationship("TaskAttachment", back_populates="task", cascade="all, delete")
     classes = relationship("Class", secondary="task_assignments", back_populates="tasks")
     environment = relationship("EnvironmentTemplate", back_populates="tasks")
-    student_tasks = relationship("StudentTask", back_populates="task")
+    student_tasks = relationship("StudentTask", back_populates="task", cascade="all, delete-orphan")
+    class_assignments = relationship("TaskAssignment", back_populates="task", cascade="all, delete")
 
 
 class TaskAttachment(Base):
@@ -50,6 +51,9 @@ class TaskAssignment(Base):
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    class_ = relationship("Class", back_populates="task_assignments")
+    task = relationship("Task", back_populates="class_assignments")
+
 
 class StudentTask(Base):
     __tablename__ = "student_tasks"
@@ -66,7 +70,7 @@ class StudentTask(Base):
     status = Column(String(50), nullable=False, default="pending")
 
     # 关系
-    student = relationship("Student", back_populates="tasks")
+    student = relationship("Student", back_populates="student_tasks")
     task = relationship("Task", back_populates="student_tasks")
     ecs_instance = relationship("ECSInstance", back_populates="student_task", uselist=False)
     jupyter_container = relationship("JupyterContainer", back_populates="student_task", uselist=False)

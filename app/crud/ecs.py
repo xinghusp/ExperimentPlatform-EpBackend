@@ -22,12 +22,31 @@ class CRUDECSInstance(CRUDBase[ECSInstance, ECSInstanceCreate, ECSInstanceUpdate
             ECSInstance.instance_id == instance_id
         ).first()
 
+    def update_status_by_instance_name(self, db: Session, *, instance_name: str, status: str, instance_id: str=None, password:str=None) -> ECSInstance:
+        instance = db.query(ECSInstance).filter(
+            ECSInstance.instance_name == instance_name
+        ).first()
+        if not instance:
+            return None
+
+        instance.status = status
+        if instance_id:
+            instance.instance_id = instance_id
+        if password:
+            instance.password = password
+        instance.updated_at = datetime.utcnow()
+
+        db.add(instance)
+        db.commit()
+        db.refresh(instance)
+        return instance
+
     def update_status(
-            self, db: Session, *, id: int, status: str,
+            self, db: Session, *, instance_id: str, status: str,
             public_ip: str = None, private_ip: str = None
     ) -> ECSInstance:
         """更新ECS实例状态"""
-        instance = self.get(db, id=id)
+        instance = self.get_by_instance_id(db, instance_id=instance_id)
         if not instance:
             return None
 
@@ -36,7 +55,7 @@ class CRUDECSInstance(CRUDBase[ECSInstance, ECSInstanceCreate, ECSInstanceUpdate
             instance.public_ip = public_ip
         if private_ip:
             instance.private_ip = private_ip
-        instance.updated_at = datetime.now()
+        instance.updated_at = datetime.utcnow()
 
         db.add(instance)
         db.commit()

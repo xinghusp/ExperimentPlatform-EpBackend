@@ -60,3 +60,5 @@ class EnvironmentTemplate(EnvironmentTemplateInDBBase):
 class EnvironmentTemplateDetail(EnvironmentTemplate):
     """包含更多细节的环境模板模型"""
     tasks_count: Optional[int] = 0
+    class Config:
+        from_attributes = True

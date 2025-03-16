@@ -32,5 +32,8 @@ class CRUDAdmin(CRUDBase[Administrator, AdminCreate, AdminUpdate]):
         db.refresh(db_obj)
         return db_obj
 
+    def get_by_username(self, db: Session, *, username: str) -> Optional[Administrator]:
+        return db.query(Administrator).filter(Administrator.username == username).first()
+
 
 admin = CRUDAdmin(Administrator)

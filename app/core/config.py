@@ -37,6 +37,13 @@ class Settings(BaseSettings):
         "env_file": ".env",
     }
 
+    DOCKER_HOST: str = "tcp://localhost:2375"
+    DOCKER_HOST_IP: str = "localhost"  # 使用远程服务器的IP或域名
+    DOCKER_TLS_VERIFY: bool = False
+    DOCKER_CERT_PATH: Optional[str] = None
+
+    print(GUACAMOLE_HOST)
+
     def __init__(self, **data: Any):
         super().__init__(**data)
         if self.SQLALCHEMY_DATABASE_URI is None:

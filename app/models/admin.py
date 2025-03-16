@@ -1,4 +1,6 @@
 from sqlalchemy import Column, Integer, String, TIMESTAMP, text
+from sqlalchemy.orm import relationship
+
 from app.db.base import Base
 
 
@@ -18,3 +20,4 @@ class Administrator(Base):
         server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
         nullable=False
     )
+    tasks = relationship("Task", back_populates="admin")

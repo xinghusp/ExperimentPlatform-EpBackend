@@ -26,8 +26,8 @@ class AliCloudService:
         security_group_id: str,
         vswitch_id: str,
         internet_max_bandwidth_out: int,
-        spot_strategy: str,
-        password: str,
+        spot_strategy: str = None,
+        password: str = None,
         auto_release_time: Optional[datetime.datetime] = None,
         custom_params: Dict[str, Any] = None
     ) -> Dict[str, Any]:
@@ -40,8 +40,10 @@ class AliCloudService:
         request.set_SecurityGroupId(security_group_id)
         request.set_VSwitchId(vswitch_id)
         request.set_InternetMaxBandwidthOut(internet_max_bandwidth_out)
-        request.set_SpotStrategy(spot_strategy)
-        request.set_Password(password)
+        if spot_strategy:
+            request.set_SpotStrategy(spot_strategy)
+        if password:
+            request.set_Password(password)
         
         # 可选参数 - 实例自动释放时间
         if auto_release_time:

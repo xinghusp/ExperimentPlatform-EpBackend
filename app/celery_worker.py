@@ -12,14 +12,6 @@ celery_app = Celery(
 
 # 设置Celery配置
 celery_app.conf.update(
-    task_routes={
-        # ECS任务
-        "app.tasks.ecs_tasks.*": {"queue": "ecs"},
-        # Jupyter任务
-        "app.tasks.jupyter_tasks.*": {"queue": "jupyter"},
-        # 默认任务
-        "*": {"queue": "default"}
-    },
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
@@ -28,9 +20,9 @@ celery_app.conf.update(
     task_track_started=True,
     task_publish_retry=True,
     broker_connection_retry_on_startup=True,
-    worker_concurrency=4,
+    worker_concurrency=4
 )
-
+#
 celery_app.autodiscover_tasks([
     "app.tasks.ecs_tasks",
     "app.tasks.jupyter_tasks"
@@ -39,7 +31,7 @@ celery_app.autodiscover_tasks([
 # 设置定时任务
 celery_app.conf.beat_schedule = {
     "check-instance-status-every-10-seconds": {
-        "task": "tasks.check_instance_status",
+        "task": "app.tasks.ecs_tasks.check_instance_status",
         "schedule": 10.0,  # 每10秒执行一次
     },
 }

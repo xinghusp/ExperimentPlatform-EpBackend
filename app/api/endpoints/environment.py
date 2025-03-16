@@ -60,7 +60,7 @@ def get_environment_template(
     ).scalar()
 
     # 构造响应
-    result = schemas.EnvironmentTemplate.from_orm(template)
+    result = schemas.EnvironmentTemplateDetail.from_orm(template)
     result.tasks_count = tasks_count
 
     return result

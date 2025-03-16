@@ -26,8 +26,8 @@ def create_jupyter_container_task(container_id: int, image: str, resource_config
             return {"status": "error", "message": "Container not found"}
 
         # 更新状态
-        jupyter_container.update_status(db, id=container_id, status="creating")
-        student_task.update_status(db, student_task_id=container.student_task_id, status="creating")
+        jupyter_container.update_status(db, id=container_id, status="Creating")
+        student_task.update_status(db, student_task_id=container.student_task_id, status="Starting")
 
         # 创建容器
         logger.info(f"Creating Jupyter container with image {image}")
@@ -57,12 +57,12 @@ def create_jupyter_container_task(container_id: int, image: str, resource_config
                 "container_name": container_result["name"],
                 "host": container_result["host"],
                 "port": container_result["port"],
-                "status": "running"
+                "status": "Running"
             }
         )
 
         # 更新学生任务状态
-        student_task.update_status(db, student_task_id=container.student_task_id, status="running")
+        student_task.update_status(db, student_task_id=container.student_task_id, status="Running")
 
         return {
             "status": "success",
@@ -75,8 +75,8 @@ def create_jupyter_container_task(container_id: int, image: str, resource_config
 
         # 更新状态为失败
         if container:
-            jupyter_container.update_status(db, id=container_id, status="failed")
-            student_task.update_status(db, student_task_id=container.student_task_id, status="failed")
+            jupyter_container.update_status(db, id=container_id, status="Error")
+            student_task.update_status(db, student_task_id=container.student_task_id, status="Error")
 
         return {
             "status": "error",

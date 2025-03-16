@@ -30,7 +30,11 @@ class ClassInDBBase(ClassBase):
 
 
 class Class(ClassInDBBase):
-    pass
+    id: int
+    created_by: int
+
+    class Config:
+        from_attributes = True
 
 
 class ClassWithCount(Class):

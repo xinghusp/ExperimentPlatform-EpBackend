@@ -321,6 +321,7 @@
         <button id="reconnect">重连</button>
         <button id="toggle-keyboard">虚拟键盘</button>
         <button id="open-window">新窗口打开</button>
+        <button id="full-screen-window" style="display:none">全屏</button>
     </div>
     <div id="keyboard-status">键盘状态: 未激活</div>
 
@@ -513,7 +514,7 @@
                     "z-index=" + computedStyle.zIndex);
 
                 // 重新设置显示大小
-                resizeDisplay();
+                //resizeDisplay();
 
                 log("显示修复完成", "success");
             } catch (e) {
@@ -878,6 +879,8 @@ function setupVirtualKeyboard() {
         function resizeDisplay() {
             if (!guacClient) return;
 
+            //window.reload();
+
             try {
                 var guacDisplay = guacClient.getDisplay();
                 var element = guacDisplay.getElement();
@@ -917,6 +920,13 @@ function setupVirtualKeyboard() {
                 log("调整显示尺寸: 缩放 " + scale.toFixed(2) +
                     ", 位置 (" + leftOffset.toFixed(0) + "," + topOffset.toFixed(0) + ")" +
                     ", 尺寸 " + scaledWidth.toFixed(0) + "x" + scaledHeight.toFixed(0));
+                const newUrl = "ws://" + window.location.host + "/api/v1/guacamole/ws/{{ student_task_id }}/"+window.innerWidth*0.9+"/"+window.innerHeight*0.9;
+                if(CONFIG.wsUrl!=newUrl){
+                    CONFIG.wsUrl=newUrl;
+                    console.log(newUrl)
+                    reconnect();
+                }
+
             } catch (e) {
                 log("调整显示尺寸出错: " + e.message, 'error');
             }
@@ -972,9 +982,39 @@ function setupVirtualKeyboard() {
             reconnectEl.addEventListener('click', reconnect);
             reconnectButton.addEventListener('click', reconnect);
             document.getElementById('open-window').addEventListener('click', function() {
-    var url = window.location.href;
-    window.open(url, '_blank', 'width=1280,height=720');
-});
+                if (guacClient) {
+                    guacClient.disconnect();
+                }
+                var url = window.location.href;
+                window.open(url, '_blank', 'width=1280,height=720');
+            });
+            document.getElementById('full-screen-window').addEventListener('click', function (){
+                var body = document.documentElement || document.body;
+                                if (document.fullscreenElement || document.webkitFullscreenElement ||
+                                    document.mozFullScreenElement || document.msFullscreenElement) {
+                                    // Exit fullscreen
+                                    if (document.exitFullscreen) {
+                                        document.exitFullscreen();
+                                    } else if (document.webkitExitFullscreen) {
+                                        document.webkitExitFullscreen();
+                                    } else if (document.mozCancelFullScreen) {
+                                        document.mozCancelFullScreen();
+                                    } else if (document.msExitFullscreen) {
+                                        document.msExitFullscreen();
+                                    }
+                                } else {
+                                    // Enter fullscreen
+                                    if (body.requestFullscreen) {
+                                        body.requestFullscreen();
+                                    } else if (body.webkitRequestFullscreen) {
+                                        body.webkitRequestFullscreen();
+                                    } else if (body.mozRequestFullScreen) {
+                                        body.mozRequestFullScreen();
+                                    } else if (body.msRequestFullscreen) {
+                                        body.msRequestFullscreen();
+                                    }
+                                }
+            })
 
             // 初始化客户端
             initGuacamole();

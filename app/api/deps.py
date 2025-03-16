@@ -29,7 +29,6 @@ def get_current_user(
     try:
         # 直接解码JWT
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        print("payload:",payload)
         # 简化处理，直接从payload中获取信息
         user_id = payload.get("sub")
         if user_id is None:

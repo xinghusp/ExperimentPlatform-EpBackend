@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.class_ import Class
 from app.models.student import Student
+from app.models.ecs import ECSInstance as ECSInstanceDb
 from app.schemas.class_ import ClassInDBBase
 from app.schemas.task import TaskCreate, TaskUpdate, Task, TaskWithAttachments, TaskAttachmentCreate, StudentTaskCreate, \
     StudentTask
@@ -36,18 +37,9 @@ async def create_task(
         description: str = Form(None),
         max_duration: int = Form(None),
         max_attempts: int = Form(...),
-        image_id: str = Form(...),
-        region_id: str = Form(...),
-        instance_type: str = Form(...),
-        security_group_id: str = Form(...),
-        vswitch_id: str = Form(...),
-        internet_max_bandwidth_out: int = Form(...),
-        spot_strategy: str = Form(...),
-        password: str = Form(...),
-        custom_params: str = Form(None),
         class_ids: str = Form(...),
         task_type: str = Form("guacamole"),  # 新增: 默认为guacamole类型
-        environment_id: int = Form(None),  # 新增: 环境模板ID (可选)
+        environment_id: int = Form(...),  # 新增: 环境模板ID
         files: List[UploadFile] = File(None),
         db: Session = Depends(get_db),
         current_admin: dict = Depends(get_current_admin)
@@ -56,43 +48,9 @@ async def create_task(
     创建任务
     """
     # 解析表单数据
-    task_data = {
-        "title": title,
-        "description": description,
-        "max_duration": max_duration,
-        "max_attempts": max_attempts,
-        "class_ids": json.loads(class_ids),
-        "task_type": task_type,  # 新增
-        "environment_id": environment_id  # 新增
-    }
+    task_data = {"title": title, "description": description, "max_duration": max_duration, "max_attempts": max_attempts,
+                 "class_ids": json.loads(class_ids), "task_type": task_type, "environment_id": environment_id}
 
-    # 如果没有指定环境模板，则自动创建一个
-    if not environment_id and task_type == "guacamole":
-        # 创建环境模板
-        resource_config = {
-            "instance_type": instance_type,
-            "region_id": region_id,
-            "security_group_id": security_group_id,
-            "vswitch_id": vswitch_id,
-            "bandwidth": internet_max_bandwidth_out,
-            "spot_strategy": spot_strategy,
-            "password": password,
-            "custom_params": json.loads(custom_params) if custom_params else None
-        }
-
-        # 创建环境模板
-        env_template = environment_template.create_with_admin(
-            db=db,
-            obj_in={"name": f"Auto-created for task: {title}",
-                    "description": f"Automatically created environment template for task: {title}",
-                    "type": "guacamole",
-                    "image": image_id,
-                    "resource_config": resource_config},
-            admin_id=current_admin["id"]
-        )
-
-        # 将环境模板ID添加到任务数据
-        task_data["environment_id"] = env_template.id
 
     # 创建任务
     task_in = TaskCreate(**task_data)
@@ -126,6 +84,7 @@ async def create_task(
 
 @router.get("/")
 def read_tasks(
+        task_type: str=None,
         db: Session = Depends(get_db),
         current_admin=Depends(get_current_admin)
 ):
@@ -133,7 +92,12 @@ def read_tasks(
     获取所有任务列表，包括关联的班级信息
     """
     # 使用joinedload预加载关联的班级信息
-    tasks = db.query(TaskDb).options(
+    if task_type is None:
+        tasks = db.query(TaskDb).options(
+            joinedload(TaskDb.classes)
+        ).all()
+    else:
+        tasks = db.query(TaskDb).filter(TaskDb.task_type==task_type).options(
         joinedload(TaskDb.classes)
     ).all()
 
@@ -213,7 +177,12 @@ def read_task(
 @router.put("/{task_id}", response_model=Task)
 def update_task(
         task_id: int,
-        task_in: TaskUpdate,
+        title: str = Form(...),
+        description: str = Form(None),
+        max_duration: int = Form(None),
+        max_attempts: int = Form(...),
+        class_ids: str = Form(...),
+        files: List[UploadFile] = File(None),
         db: Session = Depends(get_db),
         current_admin: dict = Depends(get_current_admin)
 ):
@@ -226,19 +195,12 @@ def update_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在"
         )
+        # 解析表单数据
+    task_data = {"task_id":task_id,"title": title, "description": description, "max_duration": max_duration, "max_attempts": max_attempts,
+                 "class_ids": json.loads(class_ids), "task_type": task.task_type, "environment_id": task.environment_id}
+    task_in = TaskUpdate(**task_data)
 
-    # 更新任务分配
-    if task_in.class_ids is not None:
-        crud_task.update_assignment(db=db, task_id=task_id, class_ids=task_in.class_ids)
-
-    # 检查环境模板
-    if task_in.environment_id and task_in.task_type:
-        env = environment_template.get(db, id=task_in.environment_id)
-        if not env:
-            raise HTTPException(status_code=404, detail="Environment template not found")
-        if env.type != task_in.task_type:
-            raise HTTPException(status_code=400,
-                                detail=f"Environment type ({env.type}) does not match task type ({task_in.task_type})")
+    # TODO：处理上传的附件（前后端都没弄）
 
     return crud_task.update(db=db, db_obj=task, obj_in=task_in)
 
@@ -317,8 +279,8 @@ def list_student_tasks(
 
             if latest_student_task.task_type == "guacamole":
                 # 对于ECS实例，查找IP
-                ecs = db.query(ECSInstance).filter(
-                    ECSInstance.student_task_id == latest_student_task.id
+                ecs = db.query(ECSInstanceDb).filter(
+                    ECSInstanceDb.student_task_id == latest_student_task.id
                 ).first()
                 if ecs and ecs.public_ip:
                     task_data["public_ip"] = ecs.public_ip
@@ -367,14 +329,15 @@ def get_student_task_status(
         "id": student_task.id,
         "status": student_task.status,
         "start_at": student_task.start_at,
-        "end_at": student_task.end_at
+        "end_at": student_task.end_at,
+        "task_type": student_task.task_type
     }
 
     # 针对不同环境类型获取额外信息
     if student_task.task_type == "guacamole":
         # 获取ECS实例信息
-        ecs = db.query(ECSInstance).filter(
-            ECSInstance.student_task_id == student_task.id
+        ecs = db.query(ECSInstanceDb).filter(
+            ECSInstanceDb.student_task_id == student_task.id
         ).first()
         if ecs:
             response["ecs_instance_id"] = ecs.instance_id

@@ -2,6 +2,8 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
+from app.schemas.class_ import ClassBase
+
 
 class TaskBase(BaseModel):
     """任务基础模型"""
@@ -19,9 +21,7 @@ class TaskCreate(TaskBase):
 
 
 class TaskUpdate(TaskBase):
-    """更新任务的请求模型"""
-    title: Optional[str] = None
-    class_ids: Optional[List[int]] = None
+    pass
 
 
 class TaskInDBBase(TaskBase):
@@ -37,7 +37,11 @@ class TaskInDBBase(TaskBase):
 
 class Task(TaskInDBBase):
     """API响应中的任务模型"""
-    pass
+    id: int
+    classes: List[ClassBase]
+
+    class Config:
+        from_attributes = True
 
 
 class TaskDetail(Task):
@@ -87,7 +91,7 @@ class StudentTaskBase(BaseModel):
 
 class StudentTaskCreate(StudentTaskBase):
     """创建学生任务的请求模型"""
-    pass
+    task_id: int
 
 
 class StudentTask(StudentTaskBase):

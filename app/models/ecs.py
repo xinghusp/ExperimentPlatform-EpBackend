@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.db.base import Base
+from app.models.guacamole import GuacamoleConnection
 
 
 class ECSInstance(Base):

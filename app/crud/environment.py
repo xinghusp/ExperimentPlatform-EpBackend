@@ -10,7 +10,7 @@ class CRUDEnvironmentTemplate(CRUDBase[EnvironmentTemplate, EnvironmentTemplateC
     def create_with_admin(
             self, db: Session, *, obj_in: EnvironmentTemplateCreate, admin_id: int
     ) -> EnvironmentTemplate:
-        obj_in_data = obj_in.dict()
+        obj_in_data = obj_in.model_dump()
         db_obj = EnvironmentTemplate(**obj_in_data, created_by=admin_id)
         db.add(db_obj)
         db.commit()

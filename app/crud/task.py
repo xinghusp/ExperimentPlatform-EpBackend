@@ -52,10 +52,24 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
                 EnvironmentTemplate.id == task.environment_id
             ).first()
 
+        # Convert task to dict (excluding SQLAlchemy attributes)
+        task_dict = {k: v for k, v in task.__dict__.items() if not k.startswith('_')}
+
+        # Convert classes to a list of dicts
+        classes_data = []
+        if hasattr(task, 'classes'):
+            classes_data = [{"id": cls.id, "name": cls.name, "description": cls.description}
+                            for cls in task.classes]
+
+        # Add classes to the result
+        task_dict["classes"] = classes_data
+
         result = {
-            **task.__dict__,
-            "attachments": [attachment.__dict__ for attachment in attachments],
-            "environment": environment.__dict__ if environment else None
+            **task_dict,
+            "attachments": [{k: v for k, v in attachment.__dict__.items() if not k.startswith('_')}
+                            for attachment in attachments],
+            "environment": {k: v for k, v in environment.__dict__.items() if not k.startswith('_')}
+            if environment else None
         }
         return result
 
@@ -224,7 +238,39 @@ class CRUDStudentTask(CRUDBase[StudentTask, StudentTaskCreate, StudentTaskCreate
         }
 
 
-# CeleryTaskLog类保持不变...
+class CRUDCeleryTaskLog(CRUDBase[CeleryTaskLog, CeleryTaskLogCreate, CeleryTaskLogCreate]):
+    def create_log(
+            self, db: Session, *, celery_task_id: str, task_name: str, status: str,
+            args: str = None, result: str = None, student_task_id: int = None
+    ) -> CeleryTaskLog:
+        db_obj = CeleryTaskLog(
+            task_id=celery_task_id,
+            task_name=task_name,
+            status=status,
+            args=args,
+            result=result,
+            student_task_id=student_task_id
+        )
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+
+    def update_status(
+            self, db: Session, *, celery_task_id: str, status: str, result: str = None
+    ) -> CeleryTaskLog:
+        log = db.query(CeleryTaskLog).filter(CeleryTaskLog.task_id == celery_task_id).first()
+        if not log:
+            return None
+
+        log.status = status
+        if result:
+            log.result = result
+
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+        return log
 
 
 task = CRUDTask(Task)
