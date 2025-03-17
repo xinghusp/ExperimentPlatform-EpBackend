@@ -74,7 +74,7 @@ async def guacamole_client(
     has_time_limit = False
     if task and task.max_duration and student_task.start_at:
         import datetime
-        elapsed = (datetime.datetime.now() - student_task.start_at).total_seconds()
+        elapsed = (datetime.datetime.utcnow() - student_task.start_at).total_seconds()
         remaining_seconds = max(0, task.max_duration * 60 - elapsed)
         remaining_time = int(remaining_seconds)
         has_time_limit = True

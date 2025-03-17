@@ -108,7 +108,7 @@ class CRUDStudentTask(CRUDBase[StudentTask, StudentTaskCreate, StudentTaskCreate
             attempt_number=attempt_number,
             task_type=task.task_type,  # 使用任务的类型
             status="pending",
-            start_at=datetime.datetime.now()
+            start_at=datetime.datetime.utcnow()
         )
         db.add(db_obj)
         db.commit()
@@ -162,7 +162,7 @@ class CRUDStudentTask(CRUDBase[StudentTask, StudentTaskCreate, StudentTaskCreate
         if not student_task:
             return None
 
-        student_task.last_heartbeat = datetime.datetime.now()
+        student_task.last_heartbeat = datetime.datetime.utcnow()
         db.add(student_task)
         db.commit()
         db.refresh(student_task)
@@ -175,7 +175,7 @@ class CRUDStudentTask(CRUDBase[StudentTask, StudentTaskCreate, StudentTaskCreate
         if not student_task:
             return None
 
-        student_task.end_at = datetime.datetime.now()
+        student_task.end_at = datetime.datetime.utcnow()
         student_task.status = "Stopped"
         db.add(student_task)
         db.commit()

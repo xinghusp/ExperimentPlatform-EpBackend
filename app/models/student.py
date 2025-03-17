@@ -12,8 +12,8 @@ class Student(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(String, unique=True, index=True)
     name = Column(String)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.datetime.now)
+    updated_at = Column(DateTime, default=datetime.datetime.now, onupdate=datetime.datetime.now)
     class_id = Column(Integer, ForeignKey("classes.id"))
 
     # 添加与班级的关系

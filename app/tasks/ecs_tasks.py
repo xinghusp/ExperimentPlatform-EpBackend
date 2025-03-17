@@ -250,7 +250,7 @@ def delete_instance(student_task_id: int,task_id: int,ecs_instance_model:ECSInst
 
         # 无论删除成功与否，都更新任务状态
         student_task_obj.status = "Stopped"
-        student_task_obj.end_at = datetime.datetime.now()
+        student_task_obj.end_at = datetime.datetime.utcnow()
         db.add(student_task_obj)
         db.commit()
 

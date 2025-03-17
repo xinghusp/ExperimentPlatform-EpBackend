@@ -2,8 +2,10 @@ import logging
 import secrets
 import time
 import uuid
+from datetime import datetime
 from typing import Dict, Any
 from celery import shared_task
+from sqlalchemy import text
 
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
@@ -15,6 +17,7 @@ import json
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
 # 创建Redis客户端
 redis_client = redis.Redis.from_url(
     settings.CELERY_BROKER_URL,  # 暂时先与Celery共用Redis吧，以后再说

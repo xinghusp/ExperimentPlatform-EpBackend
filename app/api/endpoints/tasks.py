@@ -317,8 +317,9 @@ def get_student_task_status(
         StudentTaskDb.id == student_task_id,
         StudentTaskDb.student_id == current_student["id"]
     ).first()
+    task = db.query(TaskDb).filter(TaskDb.id == student_task.task_id).first()
 
-    if not student_task:
+    if not student_task or not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="没有找到任务"
@@ -330,8 +331,15 @@ def get_student_task_status(
         "status": student_task.status,
         "start_at": student_task.start_at,
         "end_at": student_task.end_at,
-        "task_type": student_task.task_type
+        "task_type": student_task.task_type,
+        "has_time_limit": False
     }
+    if task and task.max_duration and student_task.start_at:
+        elapsed = (datetime.datetime.utcnow() - student_task.start_at).total_seconds()
+        remaining_seconds = max(0, task.max_duration * 60 - elapsed)
+        remaining_time = int(remaining_seconds)
+        response["remaining_time"] = remaining_time
+        response["has_time_limit"] = True
 
     # 针对不同环境类型获取额外信息
     if student_task.task_type == "guacamole":
@@ -342,7 +350,7 @@ def get_student_task_status(
         if ecs:
             response["ecs_instance_id"] = ecs.instance_id
             response["ecs_instance_status"] = ecs.status
-            response["ecs_ip_address"] = ecs.public_ip
+            #response["ecs_ip_address"] = ecs.public_ip
 
     return response
 
@@ -454,7 +462,7 @@ def check_task_status(
     # 计算剩余时间
     remaining_minutes = None
     if task.max_duration and student_task.start_at:
-        elapsed_seconds = (datetime.datetime.now() - student_task.start_at).total_seconds()
+        elapsed_seconds = (datetime.datetime.utcnow() - student_task.start_at).total_seconds()
         remaining_seconds = max(0, task.max_duration * 60 - elapsed_seconds)
         remaining_minutes = int(remaining_seconds / 60)
 

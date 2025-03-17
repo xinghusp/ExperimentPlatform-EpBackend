@@ -30,7 +30,7 @@ class CRUDGuacamoleConnection(CRUDBase[GuacamoleConnection, GuacamoleConnectionC
         if not connection:
             return None
 
-        connection.last_accessed = datetime.now()
+        connection.last_accessed = datetime.utcnow()
         db.add(connection)
         db.commit()
         db.refresh(connection)

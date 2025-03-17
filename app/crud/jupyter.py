@@ -44,7 +44,7 @@ class CRUDJupyterContainer(CRUDBase[JupyterContainer, JupyterContainerCreate, Ju
         if not container:
             return None
 
-        container.last_active = datetime.now()
+        container.last_active = datetime.utcnow()
         db.add(container)
         db.commit()
         db.refresh(container)
