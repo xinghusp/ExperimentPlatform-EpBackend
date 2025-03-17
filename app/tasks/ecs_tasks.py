@@ -299,7 +299,8 @@ def check_instance_status() -> Dict[str, Any]:
         # 按region分组处理，每次最多处理100个实例
         region_instances = {}
         for instance in active_instances:
-            if not instance.instance_id:
+            # 还未生成instance_id，或是创建时间是在近30秒的都不检查
+            if not instance.instance_id or instance.created_at > datetime.datetime.utcnow() - datetime.timedelta(seconds=30):
                 continue
 
 
