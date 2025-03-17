@@ -74,7 +74,7 @@ def change_password(
     return {"message": "密码已更新"}
 
 
-@router.get("", response_model=List[Admin])
+@router.get("/", response_model=List[Admin])
 def list_admins(
         db: Session = Depends(get_db),
         current_admin: Dict = Depends(get_current_admin),
@@ -95,7 +95,7 @@ def list_admins(
     return admins
 
 
-@router.post("", response_model=Admin)
+@router.post("/", response_model=Admin)
 def create_admin(
         *,
         db: Session = Depends(get_db),

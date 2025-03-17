@@ -12,7 +12,7 @@ from app.crud.task import task
 router = APIRouter()
 
 
-@router.post("", response_model=schemas.EnvironmentTemplate)
+@router.post("/", response_model=schemas.EnvironmentTemplate)
 def create_environment_template(
         *,
         db: Session = Depends(deps.get_db),
@@ -27,7 +27,7 @@ def create_environment_template(
     )
 
 
-@router.get("", response_model=List[schemas.EnvironmentTemplate])
+@router.get("/", response_model=List[schemas.EnvironmentTemplate])
 def get_environment_templates(
         *,
         db: Session = Depends(deps.get_db),
