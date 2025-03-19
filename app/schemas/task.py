@@ -135,3 +135,21 @@ class CeleryTaskLog(CeleryTaskLogBase):
 
     class Config:
         orm_mode = True
+
+class StudentTaskResponse(BaseModel):
+    id: int
+    student_id: int
+    student_number: str  # 学号
+    student_name: str
+    class_name: Optional[str] = None
+    task_id: int
+    task_name: str
+    status: str
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    duration: Optional[int] = None  # 以秒为单位的持续时间
+    attempt_number: int
+    task_type: str
+
+    class Config:
+        orm_mode = True

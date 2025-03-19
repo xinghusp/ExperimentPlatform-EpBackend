@@ -1,4 +1,4 @@
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 import os
@@ -12,15 +12,18 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db, get_current_admin, get_current_student
 from app.core.config import settings
 from app.core.security import create_access_token
+from app.crud.ecs import ecs_instance
+from app.crud.jupyter import jupyter_container
 from app.models.class_ import Class
 from app.models.student import Student
 from app.models.ecs import ECSInstance as ECSInstanceDb
 from app.schemas.class_ import ClassInDBBase
 from app.schemas.task import TaskCreate, TaskUpdate, Task, TaskWithAttachments, TaskAttachmentCreate, StudentTaskCreate, \
-    StudentTask
-from app.crud.task import task as crud_task
+    StudentTask, StudentTaskResponse
+from app.crud.task import task as crud_task, student_task
 from app.crud.task import student_task as crud_student_task
 from app.crud.environment import environment_template
+from app.services import ecs_service, jupyter_service
 from app.tasks.ecs_tasks import create_ecs_instance, delete_instance
 from app.models.task import Task as TaskDb, TaskAttachment as TaskAttachmentDb, StudentTask as StudentTaskDb, \
     TaskAssignment as TaskAssDb
@@ -228,6 +231,109 @@ def delete_task(
 
     return crud_task.remove(db=db, id=task_id)
 
+
+@router.get("/student-tasks", response_model=List[StudentTaskResponse])
+def get_all_student_tasks(
+        status: Optional[str] = None,
+        student_number: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100,
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin)
+):
+    """
+    管理员获取所有学生任务列表，支持按状态和学号筛选
+    """
+    # 构建查询 - 关联学生、任务和班级表
+    query = (
+        db.query(
+            StudentTaskDb,
+            StudentDb.student_number,
+            StudentDb.name.label("student_name"),
+            ClassDb.name.label("class_name"),
+            TaskDb.name.label("task_name"),
+            # 计算持续时间(秒)
+            func.timestampdiff(
+                func.second, StudentTask.start_at, StudentTask.end_at
+            ).label("duration"),
+        )
+        .join(StudentDb, StudentTaskDb.student_id == Student.id)
+        .join(TaskDb, StudentTaskDb.task_id == Task.id)
+        .outerjoin(ClassDb, StudentDb.class_id == ClassDb.id)  # 外连接班级表
+    )
+
+    # 应用筛选条件
+    if status:
+        query = query.filter(StudentTaskDb.status == status)
+
+    if student_number:
+        query = query.filter(StudentDb.student_number == student_number)
+
+    # 获取结果
+    results = query.order_by(StudentTaskDb.created_at.desc()).offset(skip).limit(limit).all()
+
+    # 格式化响应
+    response = []
+    for result in results:
+        student_task = result[0]  # StudentTask对象
+        student_number = result[1]
+        student_name = result[2]
+        class_name = result[3]
+        task_name = result[4]
+        duration = result[5]  # 可能为None，如果任务未结束
+
+        # 构建响应项
+        response_item = {
+            "id": student_task.id,
+            "student_id": student_task.student_id,
+            "student_number": student_number,
+            "student_name": student_name,
+            "class_name": class_name,
+            "task_id": student_task.task_id,
+            "task_name": task_name,
+            "status": student_task.status,
+            "start_at": student_task.start_at,
+            "end_at": student_task.end_at,
+            "duration": duration,  # 任务持续时间(秒)
+            "attempt_number": student_task.attempt_number,
+            "task_type": student_task.task_type
+        }
+
+        response.append(response_item)
+
+    return response
+
+
+@router.post("/student_tasks/{student_task_id}/force_end")
+async def force_stop_experiment(
+        *,
+        db: Session = Depends(get_db),
+        current_admin: dict = Depends(get_current_admin),
+        student_task_id: int,
+):
+    """
+    管理员强制停止实验
+    """
+    # 获取学生任务
+    student_task_obj = student_task.get(db, id=student_task_id)
+
+    # 根据任务类型执行不同的停止流程
+    if student_task_obj.task_type == "guacamole":
+        # 停止ECS实例
+        ecs = ecs_instance.get_by_student_task_id(db, student_task_id=student_task_id)
+        if ecs and ecs.instance_id:
+            await ecs_service.stop_instance(ecs.instance_id)
+        elif student_task_obj.task_type == "jupyter":
+            # 停止Jupyter容器
+            jupyter = jupyter_container.get_by_student_task_id(db, student_task_id=student_task_id)
+            if jupyter and jupyter.container_id:
+                await jupyter_service.stop_container(jupyter.container_id)
+                jupyter_container.update_status(db, id=jupyter.id, status="Stopped")
+
+        # 结束学生任务
+        student_task.end_experiment(db, student_task_id=student_task_id)
+
+        return {"message": "Experiment stopped successfully"}
 
 # 下面的代码是为了向后兼容，未来应迁移到student_tasks.py
 @router.get("/student/list", response_model=List[Dict[str, Any]])
@@ -485,3 +591,4 @@ def check_task_status(
             response["ecs_ip_address"] = ecs.public_ip
 
     return response
+
