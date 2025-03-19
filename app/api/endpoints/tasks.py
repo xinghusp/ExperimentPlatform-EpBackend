@@ -6,7 +6,7 @@ import json
 import shutil
 import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_db, get_current_admin, get_current_student
@@ -88,6 +88,8 @@ async def create_task(
 @router.get("/")
 def read_tasks(
         task_type: str=None,
+        skip: int = 0,
+        limit: int = 100,
         db: Session = Depends(get_db),
         current_admin=Depends(get_current_admin)
 ):
@@ -96,13 +98,13 @@ def read_tasks(
     """
     # 使用joinedload预加载关联的班级信息
     if task_type is None:
-        tasks = db.query(TaskDb).options(
+        tasks = db.query(TaskDb).order_by(TaskDb.id.desc()).options(
             joinedload(TaskDb.classes)
-        ).all()
+        ).offset(skip).limit(limit).all()
     else:
-        tasks = db.query(TaskDb).filter(TaskDb.task_type==task_type).options(
+        tasks = db.query(TaskDb).order_by(TaskDb.id.desc()).filter(TaskDb.task_type==task_type).options(
         joinedload(TaskDb.classes)
-    ).all()
+    ).offset(skip).limit(limit).all()
 
     # 如果需要手动处理关联关系，可以使用下面的代码
     if not tasks:
@@ -232,7 +234,7 @@ def delete_task(
     return crud_task.remove(db=db, id=task_id)
 
 
-@router.get("/student-tasks", response_model=List[StudentTaskResponse])
+@router.get("/query-student-tasks/", response_model=List[StudentTaskResponse])
 def get_all_student_tasks(
         status: Optional[str] = None,
         student_number: Optional[str] = None,
@@ -248,17 +250,17 @@ def get_all_student_tasks(
     query = (
         db.query(
             StudentTaskDb,
-            StudentDb.student_number,
+            StudentDb.student_id,
             StudentDb.name.label("student_name"),
             ClassDb.name.label("class_name"),
-            TaskDb.name.label("task_name"),
+            TaskDb.title.label("task_name"),
             # 计算持续时间(秒)
             func.timestampdiff(
-                func.second, StudentTask.start_at, StudentTask.end_at
+                text("SECOND"), StudentTaskDb.start_at, StudentTaskDb.end_at
             ).label("duration"),
         )
-        .join(StudentDb, StudentTaskDb.student_id == Student.id)
-        .join(TaskDb, StudentTaskDb.task_id == Task.id)
+        .join(StudentDb, StudentTaskDb.student_id == StudentDb.id)
+        .join(TaskDb, StudentTaskDb.task_id == TaskDb.id)
         .outerjoin(ClassDb, StudentDb.class_id == ClassDb.id)  # 外连接班级表
     )
 
@@ -267,7 +269,7 @@ def get_all_student_tasks(
         query = query.filter(StudentTaskDb.status == status)
 
     if student_number:
-        query = query.filter(StudentDb.student_number == student_number)
+        query = query.filter(StudentDb.student_id == student_number)
 
     # 获取结果
     results = query.order_by(StudentTaskDb.created_at.desc()).offset(skip).limit(limit).all()
