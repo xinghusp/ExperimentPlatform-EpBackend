@@ -1,6 +1,6 @@
 # ExperimentPlatform-EpBackend
 
-**点击访问配套的前端项目：** [ExperimentPlatform-EpFrontend](https://github.com/xinghusp/AssignmentUploadSystem.Frontend)
+**点击访问配套的前端项目：** [ExperimentPlatform-EpFrontend](https://github.com/xinghusp/ExperimentPlatform-EpFrontend)
 
 ---
 
