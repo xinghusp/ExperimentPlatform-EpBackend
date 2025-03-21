@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 from celery import shared_task
@@ -73,11 +74,11 @@ def cleanup_expired_tasks():
                             f"Missing container/instance ID or unknown task type: {task_type} for task {student_task_id}")
                         continue
 
-                    # 更新任务状态为正在停止 (实际的状态更新会在各自的停止任务中完成)
-                    # 但我们仍然添加备注说明自动停止的原因
                     student_task = db.query(StudentTask).filter(StudentTask.id == student_task_id).first()
                     if student_task:
-                       student_task.status="Stopped"
+                        student_task.status="Stopped"
+                        student_task.end_at=datetime.datetime.utcnow()
+
                     db.add(student_task)
 
                 except Exception as e:

@@ -36,6 +36,33 @@ class CRUDTask(CRUDBase[Task, TaskCreate, TaskUpdate]):
         db.commit()
         return db_obj
 
+    def update_task(
+            self, db: Session, *,db_obj:Task, obj_in: TaskUpdate
+    ) -> Task:
+        obj_in_data = obj_in.dict(exclude={"class_ids"})
+        #db_obj = self.get(db, id=obj_in.id)
+        # db_obj = Task(**obj_in_data)
+        db_obj.title = obj_in_data.get("title")
+        db_obj.description = obj_in_data.get("description")
+        db_obj.max_duration = obj_in_data.get("max_duration")
+        db_obj.max_attempts = obj_in_data.get("max_attempts")
+
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+
+        # 修改任务分配
+        db.query(TaskAssignment).filter(TaskAssignment.task_id == db_obj.id).delete()
+        for class_id in obj_in.class_ids:
+            task_assignment = TaskAssignment(
+                task_id=db_obj.id,
+                class_id=class_id
+            )
+            db.add(task_assignment)
+
+        db.commit()
+        return db_obj
+
     def get_with_attachments(self, db: Session, *, task_id: int) -> Optional[Dict]:
         task = db.query(Task).options(joinedload(Task.classes)).filter(Task.id == task_id).first()
         if not task:

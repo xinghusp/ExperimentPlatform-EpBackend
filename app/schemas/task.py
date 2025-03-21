@@ -21,7 +21,7 @@ class TaskCreate(TaskBase):
 
 
 class TaskUpdate(TaskBase):
-    pass
+    class_ids: List[int]
 
 
 class TaskInDBBase(TaskBase):

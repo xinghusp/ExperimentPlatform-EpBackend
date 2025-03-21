@@ -202,12 +202,12 @@ def update_task(
         )
         # 解析表单数据
     task_data = {"task_id":task_id,"title": title, "description": description, "max_duration": max_duration, "max_attempts": max_attempts,
-                 "class_ids": json.loads(class_ids), "task_type": task.task_type, "environment_id": task.environment_id}
+                 "class_ids": json.loads(class_ids)}
     task_in = TaskUpdate(**task_data)
 
     # TODO：处理上传的附件（前后端都没弄）
 
-    return crud_task.update(db=db, db_obj=task, obj_in=task_in)
+    return crud_task.update_task(db=db,db_obj=task,obj_in=task_in)
 
 
 @router.delete("/{task_id}", response_model=Task)
