@@ -55,6 +55,7 @@ def create_jupyter_container_task(container_id: int, image: str, resource_config
         cpu_limit = resource_config.get("cpu_limit", "1")
         ports_map = resource_config.get("ports_map", {}).get("value",{})
         start_cmd = resource_config.get("command", None)
+        extra_hosts = resource_config.get("custom_params",{}).get("extra_hosts",None)
 
         print("ports_map:",ports_map,",start_cmd:",start_cmd)
 
@@ -63,11 +64,10 @@ def create_jupyter_container_task(container_id: int, image: str, resource_config
             image=image,
             container_name=f"jupyter-{container_id}",
             memory=memory,
-            cpu=cpu,
-            memory_limit=memory_limit,
             cpu_limit=cpu_limit,
             ports=ports_map,
-            start_cmd=start_cmd
+            start_cmd=start_cmd,
+            extra_hosts=extra_hosts
         )
 
 
