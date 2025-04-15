@@ -87,10 +87,6 @@ def create_container(
         # 转换资源限制格式
         mem_limit = str(memory) if "g" in str(memory).lower() else f"{memory}m"
 
-        # 构建 extra_hosts 参数
-        docker_extra_hosts = None
-        if extra_hosts:
-            docker_extra_hosts = [f"{host}:{ip}" for host, ip in extra_hosts.items()]
 
         # 创建并启动容器
         container = docker_client.containers.run(
@@ -101,7 +97,7 @@ def create_container(
             nano_cpus=int(float(cpu_limit) * 1e9),  # Convert CPU cores to nano CPUs
             ports=ports,
             command=start_cmd,
-            extra_hosts=docker_extra_hosts,
+            extra_hosts=extra_hosts,
             restart_policy={"Name": "on-failure", "MaximumRetryCount": 3}
         )
 
